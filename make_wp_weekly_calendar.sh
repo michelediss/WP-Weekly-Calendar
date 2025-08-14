@@ -1,3 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PLUGIN_SLUG="wp-weekly-calendar"
+BASE_DIR="${PLUGIN_SLUG}"
+
+if [[ -d "$BASE_DIR" ]]; then
+  echo "Cartella '${BASE_DIR}' già esistente. Esco per non sovrascrivere."
+  echo "Rinomina o rimuovi la cartella e rilancia lo script."
+  exit 1
+fi
+
+echo "-> Creo struttura cartelle"
+mkdir -p "${BASE_DIR}/includes" "${BASE_DIR}/assets"
+
+echo "-> Scrivo file: ${BASE_DIR}/wp-weekly-calendar.php"
+cat > "${BASE_DIR}/wp-weekly-calendar.php" <<'PHP'
 <?php
 /**
  * Plugin Name: WP Weekly Calendar (CPT + Tassonomia)
@@ -14,7 +31,7 @@ if (!defined('ABSPATH')) exit;
 // -------------------------------------------------
 require_once __DIR__ . '/includes/class-wcw-cpt.php';
 require_once __DIR__ . '/includes/class-wcw-closures.php';
-require_once __DIR__ + '/includes/class-wcw-shortcode.php';
+require_once __DIR__ . '/includes/class-wcw-shortcode.php';
 require_once __DIR__ . '/includes/class-wcw-admin-page.php';
 require_once __DIR__ . '/includes/class-wcw-migration.php';
 
@@ -56,7 +73,11 @@ add_action('admin_enqueue_scripts', function($hook){
     wp_enqueue_style('wcw-admin', plugins_url('assets/admin.css', __FILE__), [], '0.2.0');
   }
 });
+PHP
 
+echo "-> Scrivo file: ${BASE_DIR}/includes/class-wcw-cpt.php"
+cat > "${BASE_DIR}/includes/class-wcw-cpt.php" <<'PHP'
+<?php
 // =================================================
 // File: includes/class-wcw-cpt.php
 // =================================================
@@ -95,7 +116,11 @@ class WCW_CPT {
   }
 }
 endif;
+PHP
 
+echo "-> Scrivo file: ${BASE_DIR}/includes/class-wcw-closures.php"
+cat > "${BASE_DIR}/includes/class-wcw-closures.php" <<'PHP'
+<?php
 // =================================================
 // File: includes/class-wcw-closures.php
 // =================================================
@@ -128,7 +153,11 @@ class WCW_Closures {
   }
 }
 endif;
+PHP
 
+echo "-> Scrivo file: ${BASE_DIR}/includes/class-wcw-shortcode.php"
+cat > "${BASE_DIR}/includes/class-wcw-shortcode.php" <<'PHP'
+<?php
 // =================================================
 // File: includes/class-wcw-shortcode.php
 // =================================================
@@ -167,6 +196,7 @@ class WCW_Shortcode {
           'compare' => 'EXISTS',
         ],
       ],
+      'no_found_rows' => true,
     ];
 
     if ($category_slug) {
@@ -235,7 +265,11 @@ class WCW_Shortcode {
   }
 }
 endif;
+PHP
 
+echo "-> Scrivo file: ${BASE_DIR}/includes/class-wcw-admin-page.php"
+cat > "${BASE_DIR}/includes/class-wcw-admin-page.php" <<'PHP'
+<?php
 // =================================================
 // File: includes/class-wcw-admin-page.php
 // =================================================
@@ -430,7 +464,11 @@ class WCW_Admin_Page {
   }
 }
 endif;
+PHP
 
+echo "-> Scrivo file: ${BASE_DIR}/includes/class-wcw-migration.php"
+cat > "${BASE_DIR}/includes/class-wcw-migration.php" <<'PHP'
+<?php
 // =================================================
 // File: includes/class-wcw-migration.php
 // =================================================
@@ -486,24 +524,25 @@ class WCW_Migration {
   }
 }
 endif;
+PHP
 
-// =================================================
-// File: assets/public.css
-// =================================================
-/*
+echo "-> Scrivo file: ${BASE_DIR}/assets/public.css"
+cat > "${BASE_DIR}/assets/public.css" <<'CSS'
 .wcw-table { width:100%; border-collapse:collapse }
 .wcw-table th, .wcw-table td { border:1px solid #e5e7eb; padding:8px; vertical-align:top }
 .wcw-event { margin-bottom:6px }
 .wcw-name { display:block; font-weight:600 }
 .wcw-cat { display:block; opacity:.75 }
 .wcw-closure-message { padding:12px; background:#fff8e1; border:1px solid #ffe082 }
-*/
+CSS
 
-// =================================================
-// File: assets/admin.css
-// =================================================
-/*
+echo "-> Scrivo file: ${BASE_DIR}/assets/admin.css"
+cat > "${BASE_DIR}/assets/admin.css" <<'CSS'
 .wcw-form label { display:inline-block; min-width:140px }
 .wcw-inline { margin:8px 0 }
 .wcw-preview { margin-top:12px }
-*/
+CSS
+
+echo "-> Plugin creato in '${BASE_DIR}'."
+echo "Attiva da WP Admin e usa lo shortcode [wcw_schedule] o [wcw_schedule category=\"slug\"]"
+

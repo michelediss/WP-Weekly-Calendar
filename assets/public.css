@@ -1,0 +1,6 @@
+.wcw-table { width:100%; border-collapse:collapse }
+.wcw-table th, .wcw-table td { border:1px solid #e5e7eb; padding:8px; vertical-align:top }
+.wcw-event { margin-bottom:6px }
+.wcw-name { display:block; font-weight:600 }
+.wcw-cat { display:block; opacity:.75 }
+.wcw-closure-message { padding:12px; background:#fff8e1; border:1px solid #ffe082 }
