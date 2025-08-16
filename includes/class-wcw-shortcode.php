@@ -4,6 +4,7 @@ class WCW_Shortcode {
 
   public static function init(){
     add_shortcode('wcw_schedule', [__CLASS__, 'render']);
+    add_shortcode('weekly_calendar', [__CLASS__, 'render']); // alias
     add_action('wp_ajax_wpwcf_filter', [__CLASS__, 'ajax_filter']);
     add_action('wp_ajax_nopriv_wpwcf_filter', [__CLASS__, 'ajax_filter']);
   }
@@ -15,7 +16,7 @@ class WCW_Shortcode {
     $qs = isset($_GET['attivita']) ? sanitize_text_field(wp_unslash($_GET['attivita'])) : '';
     $current = $qs !== '' ? $qs : $atts['category'];
 
-    $cats = WCW_DB::get_categories();
+    $cats = WCW_DB::get_categories(); // id, name, slug, color
     ob_start(); ?>
     <div class="wpwc-wrap">
 
@@ -24,9 +25,11 @@ class WCW_Shortcode {
           <span class="dot" style="background:#999"></span>
           Tutte le attività
         </a>
-        <?php foreach ($cats as $c): ?>
+        <?php foreach ($cats as $c):
+          $color = sanitize_hex_color($c->color) ?: '#777777';
+        ?>
           <a class="wpwc-chip<?php echo $current===$c->slug ? ' is-active' : ''; ?>" href="#" data-wpwc-cat="<?php echo esc_attr($c->slug); ?>">
-            <span class="dot" style="background:#777777"></span>
+            <span class="dot" style="background:<?php echo esc_attr($color); ?>"></span>
             <?php echo esc_html($c->name); ?>
           </a>
         <?php endforeach; ?>
@@ -46,27 +49,10 @@ class WCW_Shortcode {
       const ajaxUrl = "<?php echo esc_url(admin_url('admin-ajax.php')); ?>";
 
       function setActive(el){ chips.forEach(c => c.classList.remove('is-active')); el.classList.add('is-active'); }
-      function updateURL(slug){
-        const url = new URL(window.location);
-        if (slug) url.searchParams.set('attivita', slug);
-        else url.searchParams.delete('attivita');
-        window.history.replaceState({}, '', url);
-      }
-      async function fetchGrid(slug){
-        const fd = new FormData();
-        fd.append('action','wpwcf_filter');
-        fd.append('category', slug);
-        const res = await fetch(ajaxUrl, { method:'POST', body: fd, credentials:'same-origin' });
-        if (!res.ok) return;
-        grid.innerHTML = await res.text();
-      }
-      chips.forEach(ch => ch.addEventListener('click', function(e){
-        e.preventDefault();
-        const slug = this.getAttribute('data-wpwc-cat') || '';
-        setActive(this);
-        updateURL(slug);
-        fetchGrid(slug);
-      }));
+      function updateURL(slug){ const url = new URL(window.location); if (slug) url.searchParams.set('attivita', slug); else url.searchParams.delete('attivita'); window.history.replaceState({}, '', url); }
+      async function fetchGrid(slug){ const fd = new FormData(); fd.append('action','wpwcf_filter'); fd.append('category', slug); const res = await fetch(ajaxUrl, { method:'POST', body: fd, credentials:'same-origin' }); if (!res.ok) return; grid.innerHTML = await res.text(); }
+
+      chips.forEach(ch => ch.addEventListener('click', function(e){ e.preventDefault(); const slug = this.getAttribute('data-wpwc-cat') || ''; setActive(this); updateURL(slug); fetchGrid(slug); }));
     })();
     </script>
     <?php
@@ -94,9 +80,12 @@ class WCW_Shortcode {
         <?php for ($d=1; $d<=7; $d++): ?>
           <div class="wpwc-cell" data-day="<?php echo (int)$d; ?>">
             <?php if (empty($by[$d])): ?>
-              <!-- nessun evento -->
-            <?php else: foreach ($by[$d] as $ev): ?>
-              <div class="wpwc-event" data-cat="<?php echo esc_attr($ev->category_slug ?: ''); ?>">
+            <?php else: foreach ($by[$d] as $ev):
+              $color = sanitize_hex_color($ev->category_color ?? '') ?: '#777777';
+              $bg = (strlen($color)===7) ? $color.'1A' : '#0000000D';
+            ?>
+              <div class="wpwc-event" data-cat="<?php echo esc_attr($ev->category_slug ?: ''); ?>"
+                   style="border-left:6px solid <?php echo esc_attr($color); ?>;background:linear-gradient(0deg,<?php echo esc_attr($bg); ?>,<?php echo esc_attr($bg); ?>),#fff">
                 <div class="title"><?php echo esc_html($ev->name); ?></div>
                 <div class="meta">
                   <?php echo esc_html(substr($ev->time,0,5)); ?>

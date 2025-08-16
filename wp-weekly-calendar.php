@@ -1,15 +1,14 @@
 <?php
 /**
- * Plugin Name: WP Weekly Calendar 
- * Description: Calendario attività settimanale con eventi suddivisi per giorno e orario.
- * Version: 0.5.0
- * Author: Michele Paolino
+ * Plugin Name: WP Weekly Calendar (ACF + CPT Attività)
+ * Description: Eventi su tabella custom, unica pagina admin. Frontend a 7 colonne con filtri AJAX. Categorie dal CPT "attivita" con colore ACF "colore".
+ * Version: 0.7.0
+ * Author: Tu
  * Text Domain: wcw
  */
-
 if (!defined('ABSPATH')) exit;
 
-define('WCW_VERSION', '0.5.0');
+define('WCW_VERSION', '0.7.0');
 define('WCW_PLUGIN_FILE', __FILE__);
 define('WCW_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WCW_PLUGIN_URL', plugin_dir_url(__FILE__));
