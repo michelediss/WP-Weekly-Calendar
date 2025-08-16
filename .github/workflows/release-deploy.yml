@@ -2,16 +2,16 @@ name: Auto Tag, Release & Deploy WordPress plugin
 
 on:
   push:
-    branches: [master]     # <= il tuo repo usa "master"
-    tags: ['v*']           # build+deploy quando arriva un tag v*
+    branches: [master]       # il tuo repo usa "master"
+    tags: ['v*']             # build+release+deploy quando arriva un tag v*
   workflow_dispatch:
 
 permissions:
-  contents: write          # serve per creare tag e Release
+  contents: write            # serve per creare tag e Release
 
 jobs:
+  # 1) Ad ogni push su master: crea un nuovo tag vX.Y.Z (bump patch)
   tag:
-    # Crea un nuovo tag vX.Y.Z (patch) ad ogni push su master
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
@@ -24,8 +24,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           git fetch --tags --force
-          LAST_TAG="$(git tag -l 'v[0-9]*' --sort=-v:refname | head -n 1)"
+          LAST_TAG="$(git tag -l 'v[0-9]*' --sort=-v:refname | head -n 1 || true)"
           if [[ -z "$LAST_TAG" ]]; then
             NEXT_TAG="v0.1.0"
           else
@@ -42,12 +43,11 @@ jobs:
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git tag -a "$NEXT_TAG" -m "ci: release $NEXT_TAG"
           git push origin "$NEXT_TAG"
 
+  # 2) Quando l'evento è un tag v*: build + release
   build:
-    # Gira solo quando l'evento è un tag v*
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     outputs:
@@ -69,6 +69,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
 
+      # PHP deps (se presente composer.lock)
       - name: Setup PHP
         if: hashFiles('**/composer.lock') != ''
         uses: shivammathur/setup-php@v2
@@ -80,6 +81,7 @@ jobs:
         if: hashFiles('**/composer.lock') != ''
         run: composer install --no-dev --prefer-dist --no-progress --no-interaction
 
+      # Build assets (se presente package.json)
       - name: Setup Node
         if: hashFiles('**/package.json') != ''
         uses: actions/setup-node@v4
@@ -92,11 +94,13 @@ jobs:
           npm ci
           npm run build
 
-      - name: Prepara pacchetto
+      - name: Prepara pacchetto (rispetta .gitattributes export-ignore)
         run: |
           mkdir -p dist package
           git archive --format=tar HEAD | tar -x -C package
+          # pulizia base se non usi export-ignore
           rm -rf package/.github package/tests package/node_modules
+          # lo zip deve contenere una cartella con lo slug
           mkdir -p "${{ steps.vars.outputs.slug }}"
           rsync -a package/ "${{ steps.vars.outputs.slug }}/"
           (cd ./ && zip -r "dist/${{ steps.vars.outputs.zip_name }}" "${{ steps.vars.outputs.slug }}" \
@@ -117,34 +121,31 @@ jobs:
           path: dist/${{ steps.vars.outputs.zip_name }}
           if-no-files-found: error
 
-# ... (jobs: tag, build invariati)
+  # 3) Deploy SFTP del plugin
+  deploy:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scarica artefatto
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.zip_name }}
+          path: dist
 
-deploy:
-  if: startsWith(github.ref, 'refs/tags/v')
-  needs: build
-  runs-on: ubuntu-latest
-  steps:
-    - name: Scarica artefatto
-      uses: actions/download-artifact@v4
-      with:
-        name: ${{ needs.build.outputs.zip_name }}
-        path: dist
+      - name: Estrai zip
+        run: unzip "dist/${{ needs.build.outputs.zip_name }}" -d "dist/unzipped"
 
-    - name: Estrai zip
-      run: unzip "dist/${{ needs.build.outputs.zip_name }}" -d "dist/unzipped"
-
-    # Deploy SFTP con lftp (supporta porta custom)
-    - name: Deploy via SFTP (lftp)
-      uses: pressidium/lftp-mirror-action@v1
-      with:
-        host: ${{ secrets.SFTP_HOST }}                  # 34.155.237.151
-        port: ${{ secrets.SFTP_PORT }}                  # 55000
-        user: ${{ secrets.SFTP_USERNAME }}              # 65c8d3d2c1ac184a28d5ea9c
-        pass: ${{ secrets.SFTP_PASSWORD }}              # ****
-        localDir:  dist/unzipped/${{ vars.PLUGIN_SLUG || 'wp-weekly-calendar' }}/
-        remoteDir: ${{ vars.REMOTE_DIR || '/home/65c8d3d2c1ac184a28d5ea9c/public_html/wp-content/plugins/wp-weekly-calendar' }}/
-        # Opzioni consigliate
-        onlyNewer: true
-        settings: 'sftp:auto-confirm=yes'
-        options: '--delete --verbose'                   # elimina sul server ciò che non esiste più in locale
-        parallel: 2                                     # trasferimenti paralleli (facoltativo)
+      # Action SFTP (non FTP): sincronizza la cartella del plugin
+      - name: Deploy via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
+        with:
+          server:   ${{ secrets.SFTP_HOST }}        # 34.155.237.151
+          port:     ${{ secrets.SFTP_PORT }}        # 55000
+          username: ${{ secrets.SFTP_USERNAME }}    # 65c8d3d2c1ac184a28d5ea9c
+          password: ${{ secrets.SFTP_PASSWORD }}    # ****
+          local_path:  dist/unzipped/${{ vars.PLUGIN_SLUG || 'wp-weekly-calendar' }}/
+          remote_path: ${{ vars.REMOTE_DIR || '/home/65c8d3d2c1ac184a28d5ea9c/public_html/wp-content/plugins/wp-weekly-calendar' }}/
+          sftp_only: true
+          delete: true         # elimina sul server i file non più presenti in locale (attenzione!)
+          # dry_run: true      # <-- abilita per testare senza modificare nulla
