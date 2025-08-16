@@ -16,9 +16,13 @@
 .wpwc-event .title{font-weight:600}
 .wpwc-event .meta{font-size:.9em;opacity:.85;margin-top:2px}
 
-/* FADE al cambio filtro */
-.wpwc-fade{opacity:1; transition:opacity .25s ease}
-.wpwc-fade.is-out{opacity:0}
+/* Fade rapido del contenitore */
+.wpwc-fade { transition: opacity 80ms cubic-bezier(.2,0,.2,1); }
+.wpwc-fade.is-out { opacity: 0; }
+
+/* Nascondi eventi non matching */
+.wpwc-event.is-hidden { display: none; }
+
 
 /* Responsive */
 @media (max-width:1024px){.wpwc-head,.wpwc-cols{grid-template-columns:repeat(4,minmax(0,1fr))}}
