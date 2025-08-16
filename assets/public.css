@@ -16,6 +16,10 @@
 .wpwc-event .title{font-weight:600}
 .wpwc-event .meta{font-size:.9em;opacity:.85;margin-top:2px}
 
+/* FADE al cambio filtro */
+.wpwc-fade{opacity:1; transition:opacity .25s ease}
+.wpwc-fade.is-out{opacity:0}
+
 /* Responsive */
 @media (max-width:1024px){.wpwc-head,.wpwc-cols{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media (max-width:640px){.wpwc-head,.wpwc-cols{grid-template-columns:repeat(2,minmax(0,1fr))}}
