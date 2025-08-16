@@ -20,15 +20,15 @@ class WCW_Admin_Page {
     $name = sanitize_text_field($_POST['name'] ?? '');
     $day  = max(1,min(7,intval($_POST['weekday'] ?? 1)));
     $time = preg_replace('/[^0-9:]/','', $_POST['time'] ?? '');
-    $cat  = intval($_POST['category_id'] ?? 0) ?: null; // ID post CPT 'attivita'
+    $cat  = intval($_POST['category_id'] ?? 0) ?: null; // ID CPT attivita
     if ($name==='' || $time==='') wp_send_json_error(['message'=>'Dati mancanti'], 400);
     $ok = $id ? WCW_DB::update_event($id,$name,$day,$time,$cat) : WCW_DB::insert_event($name,$day,$time,$cat);
     $ok ? wp_send_json_success() : wp_send_json_error(['message'=>'Errore DB'], 500);
   }
 
   public static function ajax_delete_event(){
-    self::check_caps_and_nonce(); $id=intval($_POST['id']??0);
-    if(!$id) wp_send_json_error();
+    self::check_caps_and_nonce();
+    $id=intval($_POST['id']??0); if(!$id) wp_send_json_error();
     $ok=WCW_DB::delete_event($id);
     $ok? wp_send_json_success(): wp_send_json_error(['message'=>'Errore DB'],500);
   }
@@ -46,7 +46,7 @@ class WCW_Admin_Page {
 
   public static function render_page(){
     if (!current_user_can('manage_options')) return;
-    $cats = WCW_DB::get_categories(); // CPT attivita
+    $cats   = WCW_DB::get_categories();     // dal CPT attivita
     $events = WCW_DB::get_events('');
     $enabled = (bool) get_option('wcw_closure_enabled', 0);
     $start = get_option('wcw_closure_start', '');
@@ -86,7 +86,7 @@ class WCW_Admin_Page {
               <button class="button button-primary" id="wcw-save">Salva</button>
               <button class="button" id="wcw-reset" type="reset">Reset</button>
             </p>
-            <p class="description">Le categorie sono gestite dal CPT <code>attivita</code>. Colore letto dal campo ACF <code>colore</code>.</p>
+            <p class="description">Le categorie sono i post del CPT <code>attivita</code>. Il colore è il campo ACF <code>colore</code>.</p>
           </form>
         </div>
 
@@ -133,24 +133,36 @@ class WCW_Admin_Page {
       const $$ = s => Array.from(document.querySelectorAll(s));
       const nonce = '<?php echo esc_js($nonce); ?>';
 
-      function dayLabel(d){return {1:'Lunedì',2:'Martedì',3:'Mercoledì',4:'Giovedì',5:'Venerdì',6:'Sabato',7:'Domenica'}[d]||''}
-      function fillFormFromRow(tr){ const f = $('#wcw-event-form'); f.id.value = tr.dataset.id; f.name.value = tr.querySelector('.c-name').textContent.trim(); f.weekday.value = tr.dataset.day; f.time.value = tr.dataset.time; f.category_id.value = tr.dataset.cat || ''; }
+      function fillFormFromRow(tr){
+        const f = document.getElementById('wcw-event-form');
+        f.id.value = tr.dataset.id;
+        f.name.value = tr.querySelector('.c-name').textContent.trim();
+        f.weekday.value = tr.dataset.day;
+        f.time.value = tr.dataset.time;
+        f.category_id.value = tr.dataset.cat || '';
+      }
 
-      const saveBtn = document.getElementById('wcw-save');
-      if (saveBtn) saveBtn.addEventListener('click', async function(){
-        const f = $('#wcw-event-form'); const fd = new FormData(f);
+      document.getElementById('wcw-save').addEventListener('click', async function(){
+        const f = document.getElementById('wcw-event-form');
+        const fd = new FormData(f);
         fd.append('action','wcw_save_event'); fd.append('nonce',nonce);
-        const res = await fetch(ajaxurl,{method:'POST',body:fd}); const json = await res.json();
-        if(!json.success){ alert(json.data?.message||'Errore'); return; } location.reload();
+        const res = await fetch(ajaxurl,{method:'POST',body:fd});
+        const json = await res.json();
+        if(!json.success){ alert(json.data?.message||'Errore'); return; }
+        location.reload();
       });
 
-      $$('#wcw-table .wcw-edit').forEach(a=>a.addEventListener('click', function(e){ e.preventDefault(); fillFormFromRow(this.closest('tr')); window.scrollTo({top:0,behavior:'smooth'}); }));
+      $$('#wcw-table .wcw-edit').forEach(a=>a.addEventListener('click', function(e){
+        e.preventDefault(); fillFormFromRow(this.closest('tr')); window.scrollTo({top:0,behavior:'smooth'});
+      }));
 
       $$('#wcw-table .wcw-delete').forEach(a=>a.addEventListener('click', async function(e){
         e.preventDefault(); if(!confirm('Eliminare questa attività?')) return;
-        const tr = this.closest('tr'); const fd = new FormData();
+        const tr = this.closest('tr');
+        const fd = new FormData();
         fd.append('action','wcw_delete_event'); fd.append('nonce',nonce); fd.append('id', tr.dataset.id);
-        const res = await fetch(ajaxurl,{method:'POST',body:fd}); const json = await res.json();
+        const res = await fetch(ajaxurl,{method:'POST',body:fd});
+        const json = await res.json();
         if(json.success){ tr.remove(); } else { alert(json.data?.message||'Errore'); }
       }));
     })();
@@ -158,6 +170,6 @@ class WCW_Admin_Page {
     <?php
   }
 
-  private static function day_label($d){ $map = [1=>'Lunedì',2=>'Martedì',3=>'Mercoledì',4=>'Giovedì',5=>'Venerdì',6=>'Sabato',7=>'Domenica']; return $map[$d] ?? ''; }
+  private static function day_label($d){ $m=[1=>'Lunedì',2=>'Martedì',3=>'Mercoledì',4=>'Giovedì',5=>'Venerdì',6=>'Sabato',7=>'Domenica']; return $m[$d]??''; }
 }
 endif;

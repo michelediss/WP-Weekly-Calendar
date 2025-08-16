@@ -59,38 +59,39 @@ class WCW_Shortcode {
     return ob_get_clean();
   }
 
+  // Griglia colonne: nessuna tabella HTML
   private static function render_grid_html($category_slug = ''){
     $by = [1=>[],2=>[],3=>[],4=>[],5=>[],6=>[],7=>[]];
     $rows = WCW_DB::get_events($category_slug);
 
-    foreach ($rows as $r) { $d = (int)$r->weekday; if ($d<1 || $d>7) continue; $by[$d][] = $r; }
+    foreach ($rows as $r) { $d=(int)$r->weekday; if($d<1||$d>7) continue; $by[$d][]=$r; }
     foreach ($by as $d=>&$items) { usort($items, fn($a,$b)=>strcmp($a->time,$b->time)); }
     unset($items);
 
-    $labels = [1=>'Lunedì',2=>'Martedì',3=>'Mercoledì',4=>'Giovedì',5=>'Venerdì',6=>'Sabato',7=>'Domenica'];
+    $labels=[1=>'Lunedì',2=>'Martedì',3=>'Mercoledì',4=>'Giovedì',5=>'Venerdì',6=>'Sabato',7=>'Domenica'];
 
     ob_start(); ?>
     <div class="wpwc-grid">
       <div class="wpwc-head">
-        <?php for ($d=1; $d<=7; $d++): ?>
+        <?php for($d=1;$d<=7;$d++): ?>
           <div class="wpwc-day"><?php echo esc_html($labels[$d]); ?></div>
         <?php endfor; ?>
       </div>
       <div class="wpwc-cols">
-        <?php for ($d=1; $d<=7; $d++): ?>
+        <?php for($d=1;$d<=7;$d++): ?>
           <div class="wpwc-cell" data-day="<?php echo (int)$d; ?>">
-            <?php if (empty($by[$d])): ?>
-            <?php else: foreach ($by[$d] as $ev):
+            <?php if(!empty($by[$d])): foreach($by[$d] as $ev):
               $color = sanitize_hex_color($ev->category_color ?? '') ?: '#777777';
               $bg = (strlen($color)===7) ? $color.'1A' : '#0000000D';
             ?>
-              <div class="wpwc-event" data-cat="<?php echo esc_attr($ev->category_slug ?: ''); ?>"
+              <div class="wpwc-event"
+                   data-cat="<?php echo esc_attr($ev->category_slug ?: ''); ?>"
                    style="border-left:6px solid <?php echo esc_attr($color); ?>;background:linear-gradient(0deg,<?php echo esc_attr($bg); ?>,<?php echo esc_attr($bg); ?>),#fff">
                 <div class="title"><?php echo esc_html($ev->name); ?></div>
                 <div class="meta">
                   <?php echo esc_html(substr($ev->time,0,5)); ?>
-                  <?php if (!empty($ev->category_name)): ?>
-                    • <a href="<?php echo esc_url( home_url('/attivita/' . ($ev->category_slug ?? '')) ); ?>">
+                  <?php if(!empty($ev->category_name)): ?>
+                    • <a href="<?php echo esc_url( home_url('/attivita/'.($ev->category_slug ?? '')) ); ?>">
                       <?php echo esc_html($ev->category_name); ?>
                     </a>
                   <?php endif; ?>

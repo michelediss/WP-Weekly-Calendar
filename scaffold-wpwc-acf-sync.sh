@@ -2,27 +2,25 @@
 set -euo pipefail
 
 PLUGIN_SLUG="wp-weekly-calendar"
-VERSION="0.7.0"
+VERSION="0.7.1"
 
-# crea dir
-rm -rf "$PLUGIN_SLUG"
+echo ">> Rebuild ${PLUGIN_SLUG} v${VERSION}"
+rm -rf "${PLUGIN_SLUG}"
 mkdir -p "${PLUGIN_SLUG}/includes" "${PLUGIN_SLUG}/assets"
 
-# ==============================
-# wp-weekly-calendar.php
-# ==============================
+# ============ main ============
 cat > "${PLUGIN_SLUG}/wp-weekly-calendar.php" <<'PHP'
 <?php
 /**
- * Plugin Name: WP Weekly Calendar (ACF + CPT Attività)
- * Description: Eventi su tabella custom, unica pagina admin. Frontend a 7 colonne con filtri AJAX. Categorie dal CPT "attivita" con colore ACF "colore".
- * Version: 0.7.0
+ * Plugin Name: WP Weekly Calendar (ACF + CPT Attività + AJAX)
+ * Description: Eventi su tabella custom; categorie dal CPT "attivita" con colore ACF "colore"; frontend a griglia con filtri AJAX; unica pagina admin.
+ * Version: 0.7.1
  * Author: Tu
  * Text Domain: wcw
  */
 if (!defined('ABSPATH')) exit;
 
-define('WCW_VERSION', '0.7.0');
+define('WCW_VERSION', '0.7.1');
 define('WCW_PLUGIN_FILE', __FILE__);
 define('WCW_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WCW_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -33,21 +31,24 @@ require_once WCW_PLUGIN_DIR . 'includes/class-wcw-shortcode.php';
 require_once WCW_PLUGIN_DIR . 'includes/class-wcw-admin-page.php';
 
 register_activation_hook(__FILE__, function(){ WCW_DB::create_tables(); });
-add_action('plugins_loaded', function(){ WCW_Shortcode::init(); if (is_admin()) WCW_Admin_Page::init(); });
+
+add_action('plugins_loaded', function () {
+  WCW_Shortcode::init();
+  if (is_admin()) WCW_Admin_Page::init();
+});
 
 add_action('wp_enqueue_scripts', function(){
-  wp_enqueue_style('wcw-public', WCW_PLUGIN_URL . 'assets/public.css', [], WCW_VERSION);
+  wp_enqueue_style('wcw-public', WCW_PLUGIN_URL.'assets/public.css', [], WCW_VERSION);
 });
+
 add_action('admin_enqueue_scripts', function($hook){
   if ($hook === 'toplevel_page_wcw-calendar') {
-    wp_enqueue_style('wcw-admin', WCW_PLUGIN_URL . 'assets/admin.css', [], WCW_VERSION);
+    wp_enqueue_style('wcw-admin', WCW_PLUGIN_URL.'assets/admin.css', [], WCW_VERSION);
   }
 });
 PHP
 
-# ==============================
-# includes/class-wcw-db.php
-# ==============================
+# ============ DB ============
 cat > "${PLUGIN_SLUG}/includes/class-wcw-db.php" <<'PHP'
 <?php
 if (!class_exists('WCW_DB')):
@@ -56,84 +57,71 @@ class WCW_DB {
 
   public static function create_tables(){
     global $wpdb; $charset = $wpdb->get_charset_collate();
-    $t_events = self::table_events();
+    $t = self::table_events();
     require_once ABSPATH.'wp-admin/includes/upgrade.php';
-
-    $sql_events = "CREATE TABLE $t_events (
+    $sql = "CREATE TABLE $t (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       name VARCHAR(120) NOT NULL,
       weekday TINYINT UNSIGNED NOT NULL,
       time TIME NOT NULL,
       category_id BIGINT UNSIGNED NULL, -- ID post CPT 'attivita'
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      KEY idx_day_time (weekday, time),
+      PRIMARY KEY(id),
+      KEY idx_day_time (weekday,time),
       KEY idx_cat (category_id)
     ) $charset;";
-
-    dbDelta($sql_events);
+    dbDelta($sql);
   }
 
-  // ---------- CATEGORIE (dal CPT attivita) ----------
-  // Ritorna oggetti: id, name, slug, color
+  // -------- CATEGORIE dal CPT 'attivita' (ACF: 'colore') --------
+  // Ritorna: id, name, slug, color
   public static function get_categories(){
     global $wpdb;
     $p = $wpdb->posts;
     $pm = $wpdb->postmeta;
-    // colore ACF salvato come postmeta 'colore'
     $sql = $wpdb->prepare(
-      "SELECT p.ID AS id, p.post_title AS name, p.post_name AS slug, pm.meta_value AS color
+      "SELECT p.ID AS id, p.post_title AS name, p.post_name AS slug, c.meta_value AS color
          FROM $p p
-         LEFT JOIN $pm pm ON (pm.post_id=p.ID AND pm.meta_key=%s)
+    LEFT JOIN $pm c ON (c.post_id=p.ID AND c.meta_key=%s)
         WHERE p.post_type=%s AND p.post_status='publish'
-        ORDER BY p.post_title ASC",
-      'colore', 'attivita'
+     ORDER BY p.post_title ASC",
+      'colore','attivita'
     );
     return $wpdb->get_results($sql);
   }
 
-  // ---------- EVENTI ----------
-  // Se $category_slug è non vuoto, filtra per post_name
-  public static function get_events($category_slug = ''){
-    global $wpdb;
-    $t_e = self::table_events();
-    $p   = $wpdb->posts;
-    $pm  = $wpdb->postmeta;
+  // -------- EVENTI --------
+  public static function get_events($category_slug=''){
+    global $wpdb; $t = self::table_events(); $p=$wpdb->posts; $pm=$wpdb->postmeta;
 
     if ($category_slug) {
       $sql = $wpdb->prepare(
-        "SELECT e.*,
-                p.post_title AS category_name,
-                p.post_name  AS category_slug,
-                c.meta_value AS category_color
-           FROM $t_e e
-      LEFT JOIN $p  p  ON (p.ID=e.category_id AND p.post_type=%s AND p.post_status='publish')
-      LEFT JOIN $pm c  ON (c.post_id=p.ID AND c.meta_key=%s)
+        "SELECT e.*, p.post_title AS category_name, p.post_name AS category_slug, c.meta_value AS category_color
+           FROM $t e
+      LEFT JOIN $p  p ON (p.ID=e.category_id AND p.post_type=%s AND p.post_status='publish')
+      LEFT JOIN $pm c ON (c.post_id=p.ID AND c.meta_key=%s)
           WHERE p.post_name=%s
        ORDER BY e.time ASC, e.weekday ASC, e.name ASC",
-        'attivita', 'colore', sanitize_title($category_slug)
+        'attivita','colore', sanitize_title($category_slug)
       );
     } else {
       $sql =
-        "SELECT e.*,
-                p.post_title AS category_name,
-                p.post_name  AS category_slug,
-                c.meta_value AS category_color
-           FROM $t_e e
-      LEFT JOIN $p  p  ON (p.ID=e.category_id AND p.post_type='attivita' AND p.post_status='publish')
-      LEFT JOIN $pm c  ON (c.post_id=p.ID AND c.meta_key='colore')
+        "SELECT e.*, p.post_title AS category_name, p.post_name AS category_slug, c.meta_value AS category_color
+           FROM $t e
+      LEFT JOIN $p  p ON (p.ID=e.category_id AND p.post_type='attivita' AND p.post_status='publish')
+      LEFT JOIN $pm c ON (c.post_id=p.ID AND c.meta_key='colore')
        ORDER BY e.time ASC, e.weekday ASC, e.name ASC";
     }
     return $wpdb->get_results($sql);
   }
 
   public static function insert_event($name,$weekday,$time,$category_id){
-    global $wpdb; $weekday=(int)$weekday; $category_id = $category_id? (int)$category_id : null;
+    global $wpdb;
     return (bool)$wpdb->insert(self::table_events(), [
       'name'=>sanitize_text_field($name),
-      'weekday'=>max(1,min(7,$weekday)),
+      'weekday'=>max(1,min(7,(int)$weekday)),
       'time'=>preg_replace('/[^0-9:]/','',$time),
-      'category_id'=>$category_id,
+      'category_id'=>$category_id? (int)$category_id : null,
     ]);
   }
 
@@ -154,9 +142,7 @@ class WCW_DB {
 endif;
 PHP
 
-# ==============================
-# includes/class-wcw-closures.php
-# ==============================
+# ============ Chiusure ============
 cat > "${PLUGIN_SLUG}/includes/class-wcw-closures.php" <<'PHP'
 <?php
 if (!class_exists('WCW_Closures')):
@@ -181,16 +167,13 @@ class WCW_Closures {
     $e = DateTime::createFromFormat('Y-m-d', $end, $tz);
     $months = [1=>'gennaio',2=>'febbraio',3=>'marzo',4=>'aprile',5=>'maggio',6=>'giugno',7=>'luglio',8=>'agosto',9=>'settembre',10=>'ottobre',11=>'novembre',12=>'dicembre'];
     $date_it = intval($e->format('j')) . ' ' . $months[intval($e->format('n'))] . ' ' . $e->format('Y');
-    $msg = str_replace('{date}', $date_it, $tpl);
-    return '<div class="wcw-closure-message">' . esc_html($msg) . '</div>';
+    return '<div class="wcw-closure-message">'.esc_html(str_replace('{date}', $date_it, $tpl)).'</div>';
   }
 }
 endif;
 PHP
 
-# ==============================
-# includes/class-wcw-shortcode.php
-# ==============================
+# ============ Shortcode / Frontend ============
 cat > "${PLUGIN_SLUG}/includes/class-wcw-shortcode.php" <<'PHP'
 <?php
 if (!class_exists('WCW_Shortcode')):
@@ -253,38 +236,39 @@ class WCW_Shortcode {
     return ob_get_clean();
   }
 
+  // Griglia colonne: nessuna tabella HTML
   private static function render_grid_html($category_slug = ''){
     $by = [1=>[],2=>[],3=>[],4=>[],5=>[],6=>[],7=>[]];
     $rows = WCW_DB::get_events($category_slug);
 
-    foreach ($rows as $r) { $d = (int)$r->weekday; if ($d<1 || $d>7) continue; $by[$d][] = $r; }
+    foreach ($rows as $r) { $d=(int)$r->weekday; if($d<1||$d>7) continue; $by[$d][]=$r; }
     foreach ($by as $d=>&$items) { usort($items, fn($a,$b)=>strcmp($a->time,$b->time)); }
     unset($items);
 
-    $labels = [1=>'Lunedì',2=>'Martedì',3=>'Mercoledì',4=>'Giovedì',5=>'Venerdì',6=>'Sabato',7=>'Domenica'];
+    $labels=[1=>'Lunedì',2=>'Martedì',3=>'Mercoledì',4=>'Giovedì',5=>'Venerdì',6=>'Sabato',7=>'Domenica'];
 
     ob_start(); ?>
     <div class="wpwc-grid">
       <div class="wpwc-head">
-        <?php for ($d=1; $d<=7; $d++): ?>
+        <?php for($d=1;$d<=7;$d++): ?>
           <div class="wpwc-day"><?php echo esc_html($labels[$d]); ?></div>
         <?php endfor; ?>
       </div>
       <div class="wpwc-cols">
-        <?php for ($d=1; $d<=7; $d++): ?>
+        <?php for($d=1;$d<=7;$d++): ?>
           <div class="wpwc-cell" data-day="<?php echo (int)$d; ?>">
-            <?php if (empty($by[$d])): ?>
-            <?php else: foreach ($by[$d] as $ev):
+            <?php if(!empty($by[$d])): foreach($by[$d] as $ev):
               $color = sanitize_hex_color($ev->category_color ?? '') ?: '#777777';
               $bg = (strlen($color)===7) ? $color.'1A' : '#0000000D';
             ?>
-              <div class="wpwc-event" data-cat="<?php echo esc_attr($ev->category_slug ?: ''); ?>"
+              <div class="wpwc-event"
+                   data-cat="<?php echo esc_attr($ev->category_slug ?: ''); ?>"
                    style="border-left:6px solid <?php echo esc_attr($color); ?>;background:linear-gradient(0deg,<?php echo esc_attr($bg); ?>,<?php echo esc_attr($bg); ?>),#fff">
                 <div class="title"><?php echo esc_html($ev->name); ?></div>
                 <div class="meta">
                   <?php echo esc_html(substr($ev->time,0,5)); ?>
-                  <?php if (!empty($ev->category_name)): ?>
-                    • <a href="<?php echo esc_url( home_url('/attivita/' . ($ev->category_slug ?? '')) ); ?>">
+                  <?php if(!empty($ev->category_name)): ?>
+                    • <a href="<?php echo esc_url( home_url('/attivita/'.($ev->category_slug ?? '')) ); ?>">
                       <?php echo esc_html($ev->category_name); ?>
                     </a>
                   <?php endif; ?>
@@ -307,9 +291,7 @@ class WCW_Shortcode {
 endif;
 PHP
 
-# ==============================
-# includes/class-wcw-admin-page.php
-# ==============================
+# ============ Admin Page ============
 cat > "${PLUGIN_SLUG}/includes/class-wcw-admin-page.php" <<'PHP'
 <?php
 if (!class_exists('WCW_Admin_Page')):
@@ -333,15 +315,15 @@ class WCW_Admin_Page {
     $name = sanitize_text_field($_POST['name'] ?? '');
     $day  = max(1,min(7,intval($_POST['weekday'] ?? 1)));
     $time = preg_replace('/[^0-9:]/','', $_POST['time'] ?? '');
-    $cat  = intval($_POST['category_id'] ?? 0) ?: null; // ID post CPT 'attivita'
+    $cat  = intval($_POST['category_id'] ?? 0) ?: null; // ID CPT attivita
     if ($name==='' || $time==='') wp_send_json_error(['message'=>'Dati mancanti'], 400);
     $ok = $id ? WCW_DB::update_event($id,$name,$day,$time,$cat) : WCW_DB::insert_event($name,$day,$time,$cat);
     $ok ? wp_send_json_success() : wp_send_json_error(['message'=>'Errore DB'], 500);
   }
 
   public static function ajax_delete_event(){
-    self::check_caps_and_nonce(); $id=intval($_POST['id']??0);
-    if(!$id) wp_send_json_error();
+    self::check_caps_and_nonce();
+    $id=intval($_POST['id']??0); if(!$id) wp_send_json_error();
     $ok=WCW_DB::delete_event($id);
     $ok? wp_send_json_success(): wp_send_json_error(['message'=>'Errore DB'],500);
   }
@@ -359,7 +341,7 @@ class WCW_Admin_Page {
 
   public static function render_page(){
     if (!current_user_can('manage_options')) return;
-    $cats = WCW_DB::get_categories(); // CPT attivita
+    $cats   = WCW_DB::get_categories();     // dal CPT attivita
     $events = WCW_DB::get_events('');
     $enabled = (bool) get_option('wcw_closure_enabled', 0);
     $start = get_option('wcw_closure_start', '');
@@ -399,7 +381,7 @@ class WCW_Admin_Page {
               <button class="button button-primary" id="wcw-save">Salva</button>
               <button class="button" id="wcw-reset" type="reset">Reset</button>
             </p>
-            <p class="description">Le categorie sono gestite dal CPT <code>attivita</code>. Colore letto dal campo ACF <code>colore</code>.</p>
+            <p class="description">Le categorie sono i post del CPT <code>attivita</code>. Il colore è il campo ACF <code>colore</code>.</p>
           </form>
         </div>
 
@@ -446,24 +428,36 @@ class WCW_Admin_Page {
       const $$ = s => Array.from(document.querySelectorAll(s));
       const nonce = '<?php echo esc_js($nonce); ?>';
 
-      function dayLabel(d){return {1:'Lunedì',2:'Martedì',3:'Mercoledì',4:'Giovedì',5:'Venerdì',6:'Sabato',7:'Domenica'}[d]||''}
-      function fillFormFromRow(tr){ const f = $('#wcw-event-form'); f.id.value = tr.dataset.id; f.name.value = tr.querySelector('.c-name').textContent.trim(); f.weekday.value = tr.dataset.day; f.time.value = tr.dataset.time; f.category_id.value = tr.dataset.cat || ''; }
+      function fillFormFromRow(tr){
+        const f = document.getElementById('wcw-event-form');
+        f.id.value = tr.dataset.id;
+        f.name.value = tr.querySelector('.c-name').textContent.trim();
+        f.weekday.value = tr.dataset.day;
+        f.time.value = tr.dataset.time;
+        f.category_id.value = tr.dataset.cat || '';
+      }
 
-      const saveBtn = document.getElementById('wcw-save');
-      if (saveBtn) saveBtn.addEventListener('click', async function(){
-        const f = $('#wcw-event-form'); const fd = new FormData(f);
+      document.getElementById('wcw-save').addEventListener('click', async function(){
+        const f = document.getElementById('wcw-event-form');
+        const fd = new FormData(f);
         fd.append('action','wcw_save_event'); fd.append('nonce',nonce);
-        const res = await fetch(ajaxurl,{method:'POST',body:fd}); const json = await res.json();
-        if(!json.success){ alert(json.data?.message||'Errore'); return; } location.reload();
+        const res = await fetch(ajaxurl,{method:'POST',body:fd});
+        const json = await res.json();
+        if(!json.success){ alert(json.data?.message||'Errore'); return; }
+        location.reload();
       });
 
-      $$('#wcw-table .wcw-edit').forEach(a=>a.addEventListener('click', function(e){ e.preventDefault(); fillFormFromRow(this.closest('tr')); window.scrollTo({top:0,behavior:'smooth'}); }));
+      $$('#wcw-table .wcw-edit').forEach(a=>a.addEventListener('click', function(e){
+        e.preventDefault(); fillFormFromRow(this.closest('tr')); window.scrollTo({top:0,behavior:'smooth'});
+      }));
 
       $$('#wcw-table .wcw-delete').forEach(a=>a.addEventListener('click', async function(e){
         e.preventDefault(); if(!confirm('Eliminare questa attività?')) return;
-        const tr = this.closest('tr'); const fd = new FormData();
+        const tr = this.closest('tr');
+        const fd = new FormData();
         fd.append('action','wcw_delete_event'); fd.append('nonce',nonce); fd.append('id', tr.dataset.id);
-        const res = await fetch(ajaxurl,{method:'POST',body:fd}); const json = await res.json();
+        const res = await fetch(ajaxurl,{method:'POST',body:fd});
+        const json = await res.json();
         if(json.success){ tr.remove(); } else { alert(json.data?.message||'Errore'); }
       }));
     })();
@@ -471,14 +465,12 @@ class WCW_Admin_Page {
     <?php
   }
 
-  private static function day_label($d){ $map = [1=>'Lunedì',2=>'Martedì',3=>'Mercoledì',4=>'Giovedì',5=>'Venerdì',6=>'Sabato',7=>'Domenica']; return $map[$d] ?? ''; }
+  private static function day_label($d){ $m=[1=>'Lunedì',2=>'Martedì',3=>'Mercoledì',4=>'Giovedì',5=>'Venerdì',6=>'Sabato',7=>'Domenica']; return $m[$d]??''; }
 }
 endif;
 PHP
 
-# ==============================
-# uninstall.php
-# ==============================
+# ============ uninstall ============
 cat > "${PLUGIN_SLUG}/uninstall.php" <<'PHP'
 <?php
 // Mantiene i dati in tabella. Pulisce solo le opzioni.
@@ -490,9 +482,7 @@ if (defined('WP_UNINSTALL_PLUGIN')) {
 }
 PHP
 
-# ==============================
-# assets/public.css
-# ==============================
+# ============ CSS public ============
 cat > "${PLUGIN_SLUG}/assets/public.css" <<'CSS'
 /* Toolbar */
 .wpwc-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
@@ -517,14 +507,12 @@ cat > "${PLUGIN_SLUG}/assets/public.css" <<'CSS'
 @media (max-width:640px){.wpwc-head,.wpwc-cols{grid-template-columns:repeat(2,minmax(0,1fr))}}
 CSS
 
-# ==============================
-# assets/admin.css
-# ==============================
+# ============ CSS admin ============
 cat > "${PLUGIN_SLUG}/assets/admin.css" <<'CSS'
 .wcw-grid-admin{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
 @media (max-width:1100px){.wcw-grid-admin{grid-template-columns:1fr}}
 .wcw-form label{display:inline-block;min-width:140px}
 CSS
 
-echo "OK: creato plugin '${PLUGIN_SLUG}' v${VERSION}"
+echo ">> Done. Folder: ${PLUGIN_SLUG}"
 
