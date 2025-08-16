@@ -2,11 +2,11 @@ name: Auto Release & Deploy (single-run)
 
 on:
   push:
-    branches: [master]     # esegue ad ogni push su master
-  workflow_dispatch:       # esecuzione manuale
+    branches: [master]       # esegue su push a master
+  workflow_dispatch:         # avvio manuale
 
 permissions:
-  contents: write          # serve per creare tag e Release
+  contents: write            # necessario per creare tag e Release
 
 jobs:
   release_deploy:
@@ -17,8 +17,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Calcola prossimo tag (bump patch) e salvalo in output
+      - name: Calcola prossimo tag (bump patch)
         id: ver
+        shell: bash
         run: |
           set -euo pipefail
           git fetch --tags --force
@@ -27,19 +28,24 @@ jobs:
             NEXT_TAG="v0.1.0"
           else
             if [[ "$LAST_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-              MAJOR="${BASH_REMATCH[1]}"; MINOR="${BASH_REMATCH[2]}"; PATCH="${BASH_REMATCH[3]}"
+              MAJOR="${BASH_REMATCH[1]}"
+              MINOR="${BASH_REMATCH[2]}"
+              PATCH="${BASH_REMATCH[3]}"
               NEXT_TAG="v${MAJOR}.${MINOR}.$((PATCH+1))"
             else
-              echo "Ultimo tag non in formato vX.Y.Z: $LAST_TAG" >&2; exit 1
+              echo "Ultimo tag non nel formato vX.Y.Z: $LAST_TAG" >&2
+              exit 1
             fi
           fi
-          echo "tag=$NEXT_TAG" >> $GITHUB_OUTPUT
-          echo "version=${NEXT_TAG#v}" >> $GITHUB_OUTPUT
+          echo "tag=$NEXT_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${NEXT_TAG#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Crea e push del tag appena calcolato (stesso run)
+      - name: Crea e push del tag
         env:
           TAG: ${{ steps.ver.outputs.tag }}
+        shell: bash
         run: |
+          set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG" -m "ci: release $TAG"
@@ -47,12 +53,14 @@ jobs:
 
       - name: Definisci variabili build
         id: vars
+        shell: bash
         run: |
+          set -euo pipefail
           SLUG="wp-weekly-calendar"
           VERSION="${{ steps.ver.outputs.version }}"
-          ZIP_NAME="$SLUG-$VERSION.zip"   # <- niente branch nel nome
-          echo "slug=$SLUG" >> $GITHUB_OUTPUT
-          echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
+          ZIP_NAME="${SLUG}-${VERSION}.zip"
+          echo "slug=${SLUG}" >> "$GITHUB_OUTPUT"
+          echo "zip_name=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
 
       # (opzionale) Composer
       - name: Setup PHP
@@ -80,6 +88,7 @@ jobs:
           npm run build
 
       - name: Prepara cartella e ZIP del plugin
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist package "${{ steps.vars.outputs.slug }}"
@@ -87,20 +96,20 @@ jobs:
           # pulizia base se non usi .gitattributes export-ignore
           rm -rf package/.github package/tests package/node_modules
           # lo zip deve contenere una cartella con lo slug
-          rsync -a package/ "${{ steps.vars.outputs.slug }}/"
+          cp -a package/. "${{ steps.vars.outputs.slug }}/"
           (cd ./ && zip -r "dist/${{ steps.vars.outputs.zip_name }}" "${{ steps.vars.outputs.slug }}" \
             -x "*.git*" "*/node_modules/*" "*/tests/*" "*/.github/*")
 
       - name: Crea la GitHub Release e allega lo ZIP
         uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
-          name: "WP Weekly Calendar ${{ steps.ver.outputs.version }}"
+          name: WP Weekly Calendar ${{ steps.ver.outputs.version }}
           files: dist/${{ steps.vars.outputs.zip_name }}
           fail_on_unmatched_files: true
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Deploy via SFTP (sovrascrive la cartella del plugin)
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
@@ -109,4 +118,8 @@ jobs:
           port:       ${{ secrets.SFTP_PORT }}      # 55000
           username:   ${{ secrets.SFTP_USERNAME }}  # 65c8d3d2c1ac184a28d5ea9c
           password:   ${{ secrets.SFTP_PASSWORD }}  # ***
-          local_p_
+          local_path: ${{ steps.vars.outputs.slug }}/
+          remote_path: /home/65c8d3d2c1ac184a28d5ea9c/public_html/wp-content/plugins/wp-weekly-calendar/
+          sftp_only: true
+          delete: true          # ⚠️ elimina file remoti non presenti in locale
+          # dry_run: true       # ← abilita per provare senza toccare nulla
