@@ -1,18 +1,15 @@
-name: Auto Tag, Release & Deploy WordPress plugin
+name: Auto Release & Deploy (single-run)
 
 on:
   push:
-    branches: [master]       # il tuo repo usa "master"
-    tags: ['v*']             # build+release+deploy quando arriva un tag v*
-  workflow_dispatch:
+    branches: [master]     # esegue ad ogni push su master
+  workflow_dispatch:       # esecuzione manuale
 
 permissions:
-  contents: write            # serve per creare tag e Release
+  contents: write          # serve per creare tag e Release
 
 jobs:
-  # 1) Ad ogni push su master: crea un nuovo tag vX.Y.Z (bump patch)
-  tag:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+  release_deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (con tutti i tag)
@@ -20,9 +17,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Calcola prossimo tag e pubblicalo
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Calcola prossimo tag (bump patch) e salvalo in output
+        id: ver
         run: |
           set -euo pipefail
           git fetch --tags --force
@@ -31,45 +27,34 @@ jobs:
             NEXT_TAG="v0.1.0"
           else
             if [[ "$LAST_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-              MAJOR="${BASH_REMATCH[1]}"
-              MINOR="${BASH_REMATCH[2]}"
-              PATCH="${BASH_REMATCH[3]}"
+              MAJOR="${BASH_REMATCH[1]}"; MINOR="${BASH_REMATCH[2]}"; PATCH="${BASH_REMATCH[3]}"
               NEXT_TAG="v${MAJOR}.${MINOR}.$((PATCH+1))"
             else
-              echo "Ultimo tag non in formato vX.Y.Z: $LAST_TAG" >&2
-              exit 1
+              echo "Ultimo tag non in formato vX.Y.Z: $LAST_TAG" >&2; exit 1
             fi
           fi
+          echo "tag=$NEXT_TAG" >> $GITHUB_OUTPUT
+          echo "version=${NEXT_TAG#v}" >> $GITHUB_OUTPUT
 
+      - name: Crea e push del tag appena calcolato (stesso run)
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$NEXT_TAG" -m "ci: release $NEXT_TAG"
-          git push origin "$NEXT_TAG"
+          git tag -a "$TAG" -m "ci: release $TAG"
+          git push origin "$TAG"
 
-  # 2) Quando l'evento è un tag v*: build + release
-  build:
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    outputs:
-      zip_name: ${{ steps.vars.outputs.zip_name }}
-      slug: ${{ steps.vars.outputs.slug }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Vars
+      - name: Definisci variabili build
         id: vars
         run: |
-          SLUG="${{ vars.PLUGIN_SLUG || 'wp-weekly-calendar' }}"
-          VERSION="${GITHUB_REF_NAME#v}"
-          ZIP_NAME="$SLUG-$VERSION.zip"
+          SLUG="wp-weekly-calendar"
+          VERSION="${{ steps.ver.outputs.version }}"
+          ZIP_NAME="$SLUG-$VERSION.zip"   # <- niente branch nel nome
           echo "slug=$SLUG" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
 
-      # PHP deps (se presente composer.lock)
+      # (opzionale) Composer
       - name: Setup PHP
         if: hashFiles('**/composer.lock') != ''
         uses: shivammathur/setup-php@v2
@@ -81,7 +66,7 @@ jobs:
         if: hashFiles('**/composer.lock') != ''
         run: composer install --no-dev --prefer-dist --no-progress --no-interaction
 
-      # Build assets (se presente package.json)
+      # (opzionale) Build asset
       - name: Setup Node
         if: hashFiles('**/package.json') != ''
         uses: actions/setup-node@v4
@@ -94,58 +79,34 @@ jobs:
           npm ci
           npm run build
 
-      - name: Prepara pacchetto (rispetta .gitattributes export-ignore)
+      - name: Prepara cartella e ZIP del plugin
         run: |
-          mkdir -p dist package
+          set -euo pipefail
+          mkdir -p dist package "${{ steps.vars.outputs.slug }}"
           git archive --format=tar HEAD | tar -x -C package
-          # pulizia base se non usi export-ignore
+          # pulizia base se non usi .gitattributes export-ignore
           rm -rf package/.github package/tests package/node_modules
           # lo zip deve contenere una cartella con lo slug
-          mkdir -p "${{ steps.vars.outputs.slug }}"
           rsync -a package/ "${{ steps.vars.outputs.slug }}/"
           (cd ./ && zip -r "dist/${{ steps.vars.outputs.zip_name }}" "${{ steps.vars.outputs.slug }}" \
             -x "*.git*" "*/node_modules/*" "*/tests/*" "*/.github/*")
 
-      - name: Pubblica Release su GitHub
+      - name: Crea la GitHub Release e allega lo ZIP
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: "WP Weekly Calendar ${{ steps.ver.outputs.version }}"
           files: dist/${{ steps.vars.outputs.zip_name }}
           fail_on_unmatched_files: true
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Salva artefatto per il deploy
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.vars.outputs.zip_name }}
-          path: dist/${{ steps.vars.outputs.zip_name }}
-          if-no-files-found: error
-
-  # 3) Deploy SFTP del plugin
-  deploy:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Scarica artefatto
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ needs.build.outputs.zip_name }}
-          path: dist
-
-      - name: Estrai zip
-        run: unzip "dist/${{ needs.build.outputs.zip_name }}" -d "dist/unzipped"
-
-      # Action SFTP (non FTP): sincronizza la cartella del plugin
-      - name: Deploy via SFTP
+      - name: Deploy via SFTP (sovrascrive la cartella del plugin)
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
         with:
-          server:   ${{ secrets.SFTP_HOST }}        # 34.155.237.151
-          port:     ${{ secrets.SFTP_PORT }}        # 55000
-          username: ${{ secrets.SFTP_USERNAME }}    # 65c8d3d2c1ac184a28d5ea9c
-          password: ${{ secrets.SFTP_PASSWORD }}    # ****
-          local_path:  dist/unzipped/${{ vars.PLUGIN_SLUG || 'wp-weekly-calendar' }}/
-          remote_path: ${{ vars.REMOTE_DIR || '/home/65c8d3d2c1ac184a28d5ea9c/public_html/wp-content/plugins/wp-weekly-calendar' }}/
-          sftp_only: true
-          delete: true         # elimina sul server i file non più presenti in locale (attenzione!)
-          # dry_run: true      # <-- abilita per testare senza modificare nulla
+          server:     ${{ secrets.SFTP_HOST }}      # 34.155.237.151
+          port:       ${{ secrets.SFTP_PORT }}      # 55000
+          username:   ${{ secrets.SFTP_USERNAME }}  # 65c8d3d2c1ac184a28d5ea9c
+          password:   ${{ secrets.SFTP_PASSWORD }}  # ***
+          local_p_
