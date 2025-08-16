@@ -1,18 +1,18 @@
-name: Auto Release & Deploy (single-run)
+name: Auto Tag & Release (plugin zip)
 
 on:
   push:
-    branches: [master]       # esegue su push a master
-  workflow_dispatch:         # avvio manuale
+    branches: [master]         # esegue ad ogni push su master
+  workflow_dispatch:           # avvio manuale opzionale
 
 permissions:
-  contents: write            # necessario per creare tag e Release
+  contents: write              # serve per creare tag e Release
 
 jobs:
-  release_deploy:
+  release_only:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (con tutti i tag)
+      - name: Checkout (tutti i tag)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -28,13 +28,10 @@ jobs:
             NEXT_TAG="v0.1.0"
           else
             if [[ "$LAST_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-              MAJOR="${BASH_REMATCH[1]}"
-              MINOR="${BASH_REMATCH[2]}"
-              PATCH="${BASH_REMATCH[3]}"
+              MAJOR="${BASH_REMATCH[1]}"; MINOR="${BASH_REMATCH[2]}"; PATCH="${BASH_REMATCH[3]}"
               NEXT_TAG="v${MAJOR}.${MINOR}.$((PATCH+1))"
             else
-              echo "Ultimo tag non nel formato vX.Y.Z: $LAST_TAG" >&2
-              exit 1
+              echo "Ultimo tag non nel formato vX.Y.Z: $LAST_TAG" >&2; exit 1
             fi
           fi
           echo "tag=$NEXT_TAG" >> "$GITHUB_OUTPUT"
@@ -58,7 +55,7 @@ jobs:
           set -euo pipefail
           SLUG="wp-weekly-calendar"
           VERSION="${{ steps.ver.outputs.version }}"
-          ZIP_NAME="${SLUG}-${VERSION}.zip"
+          ZIP_NAME="${SLUG}-${VERSION}.zip"   # <- niente nome branch
           echo "slug=${SLUG}" >> "$GITHUB_OUTPUT"
           echo "zip_name=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
 
@@ -110,16 +107,3 @@ jobs:
           files: dist/${{ steps.vars.outputs.zip_name }}
           fail_on_unmatched_files: true
           generate_release_notes: true
-
-      - name: Deploy via SFTP (sovrascrive la cartella del plugin)
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
-        with:
-          server:     ${{ secrets.SFTP_HOST }}      # 34.155.237.151
-          port:       ${{ secrets.SFTP_PORT }}      # 55000
-          username:   ${{ secrets.SFTP_USERNAME }}  # 65c8d3d2c1ac184a28d5ea9c
-          password:   ${{ secrets.SFTP_PASSWORD }}  # ***
-          local_path: ${{ steps.vars.outputs.slug }}/
-          remote_path: /home/65c8d3d2c1ac184a28d5ea9c/public_html/wp-content/plugins/wp-weekly-calendar/
-          sftp_only: true
-          delete: true          # ⚠️ elimina file remoti non presenti in locale
-          # dry_run: true       # ← abilita per provare senza toccare nulla
