@@ -16,7 +16,7 @@ class WCW_Shortcode {
     $qs = isset($_GET['attivita']) ? sanitize_text_field(wp_unslash($_GET['attivita'])) : '';
     $current = $qs !== '' ? $qs : $atts['category'];
 
-    $cats = WCW_DB::get_categories();
+    $cats = WCW_DB::get_categories(); // id, name, slug, color
     ob_start(); ?>
     <div class="wpwc-wrap">
 
@@ -25,9 +25,11 @@ class WCW_Shortcode {
           <span class="dot" style="background:#999"></span>
           Tutte le attività
         </a>
-        <?php foreach ($cats as $c): ?>
+        <?php foreach ($cats as $c):
+          $color = sanitize_hex_color($c->color) ?: '#777777';
+        ?>
           <a class="wpwc-chip<?php echo $current===$c->slug ? ' is-active' : ''; ?>" href="#" data-wpwc-cat="<?php echo esc_attr($c->slug); ?>">
-            <span class="dot" style="background:#777777"></span>
+            <span class="dot" style="background:<?php echo esc_attr($color); ?>"></span>
             <?php echo esc_html($c->name); ?>
           </a>
         <?php endforeach; ?>
@@ -58,7 +60,6 @@ class WCW_Shortcode {
   }
 
   private static function render_grid_html($category_slug = ''){
-    // Bucket per giorni 1..7
     $by = [1=>[],2=>[],3=>[],4=>[],5=>[],6=>[],7=>[]];
     $rows = WCW_DB::get_events($category_slug);
 
@@ -79,9 +80,12 @@ class WCW_Shortcode {
         <?php for ($d=1; $d<=7; $d++): ?>
           <div class="wpwc-cell" data-day="<?php echo (int)$d; ?>">
             <?php if (empty($by[$d])): ?>
-              <!-- nessun evento -->
-            <?php else: foreach ($by[$d] as $ev): ?>
-              <div class="wpwc-event" data-cat="<?php echo esc_attr($ev->category_slug ?: ''); ?>">
+            <?php else: foreach ($by[$d] as $ev):
+              $color = sanitize_hex_color($ev->category_color ?? '') ?: '#777777';
+              $bg = (strlen($color)===7) ? $color.'1A' : '#0000000D';
+            ?>
+              <div class="wpwc-event" data-cat="<?php echo esc_attr($ev->category_slug ?: ''); ?>"
+                   style="border-left:6px solid <?php echo esc_attr($color); ?>;background:linear-gradient(0deg,<?php echo esc_attr($bg); ?>,<?php echo esc_attr($bg); ?>),#fff">
                 <div class="title"><?php echo esc_html($ev->name); ?></div>
                 <div class="meta">
                   <?php echo esc_html(substr($ev->time,0,5)); ?>

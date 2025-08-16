@@ -1,15 +1,14 @@
 <?php
 /**
- * Plugin Name: WP Weekly Calendar (DB + Single Admin + Grid AJAX)
- * Description: Attività gestite su tabelle custom, unica pagina admin, frontend a 7 colonne con filtri AJAX. Categorie lette dal CPT "attivita" con fallback su tabella interna.
- * Version: 0.6.0
+ * Plugin Name: WP Weekly Calendar (ACF + CPT Attività)
+ * Description: Eventi su tabella custom, unica pagina admin. Frontend a 7 colonne con filtri AJAX. Categorie dal CPT "attivita" con colore ACF "colore".
+ * Version: 0.7.0
  * Author: Tu
  * Text Domain: wcw
  */
-
 if (!defined('ABSPATH')) exit;
 
-define('WCW_VERSION', '0.6.0');
+define('WCW_VERSION', '0.7.0');
 define('WCW_PLUGIN_FILE', __FILE__);
 define('WCW_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WCW_PLUGIN_URL', plugin_dir_url(__FILE__));

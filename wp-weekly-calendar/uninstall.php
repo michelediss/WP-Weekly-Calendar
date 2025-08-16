@@ -1,5 +1,5 @@
 <?php
-// Mantiene i dati. Pulisce solo le opzioni.
+// Mantiene i dati in tabella. Pulisce solo le opzioni.
 if (defined('WP_UNINSTALL_PLUGIN')) {
   delete_option('wcw_closure_enabled');
   delete_option('wcw_closure_start');

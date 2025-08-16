@@ -5,7 +5,6 @@ class WCW_Admin_Page {
     add_action('admin_menu', [__CLASS__, 'menu']);
     add_action('wp_ajax_wcw_save_event',   [__CLASS__, 'ajax_save_event']);
     add_action('wp_ajax_wcw_delete_event', [__CLASS__, 'ajax_delete_event']);
-    // niente add/delete category quando si usa CPT
     add_action('admin_post_wcw_save_closure', [__CLASS__, 'save_closure']);
   }
 
@@ -21,7 +20,7 @@ class WCW_Admin_Page {
     $name = sanitize_text_field($_POST['name'] ?? '');
     $day  = max(1,min(7,intval($_POST['weekday'] ?? 1)));
     $time = preg_replace('/[^0-9:]/','', $_POST['time'] ?? '');
-    $cat  = intval($_POST['category_id'] ?? 0) ?: null; // ID post CPT o id fallback
+    $cat  = intval($_POST['category_id'] ?? 0) ?: null; // ID post CPT 'attivita'
     if ($name==='' || $time==='') wp_send_json_error(['message'=>'Dati mancanti'], 400);
     $ok = $id ? WCW_DB::update_event($id,$name,$day,$time,$cat) : WCW_DB::insert_event($name,$day,$time,$cat);
     $ok ? wp_send_json_success() : wp_send_json_error(['message'=>'Errore DB'], 500);
@@ -47,8 +46,7 @@ class WCW_Admin_Page {
 
   public static function render_page(){
     if (!current_user_can('manage_options')) return;
-    $uses_cpt = WCW_DB::use_cpt_categories();
-    $cats = WCW_DB::get_categories();
+    $cats = WCW_DB::get_categories(); // CPT attivita
     $events = WCW_DB::get_events('');
     $enabled = (bool) get_option('wcw_closure_enabled', 0);
     $start = get_option('wcw_closure_start', '');
@@ -88,24 +86,8 @@ class WCW_Admin_Page {
               <button class="button button-primary" id="wcw-save">Salva</button>
               <button class="button" id="wcw-reset" type="reset">Reset</button>
             </p>
+            <p class="description">Le categorie sono gestite dal CPT <code>attivita</code>. Colore letto dal campo ACF <code>colore</code>.</p>
           </form>
-
-          <?php if ($uses_cpt): ?>
-            <div class="notice-inline">
-              <p><strong>Categorie</strong> lette dal CPT <code>attivita</code>. Gestiscile in <a href="<?php echo esc_url(admin_url('edit.php?post_type=attivita')); ?>">Attività</a>.</p>
-            </div>
-          <?php else: ?>
-            <h3>Categorie (fallback interno)</h3>
-            <form id="wcw-cat-form" onsubmit="return false;">
-              <input type="text" name="name" placeholder="Nome categoria">
-              <button class="button" id="wcw-add-cat">Aggiungi</button>
-            </form>
-            <ul id="wcw-cat-list">
-              <?php foreach ($cats as $c): ?>
-                <li data-id="<?php echo intval($c->id); ?>"><?php echo esc_html($c->name); ?></li>
-              <?php endforeach; ?>
-            </ul>
-          <?php endif; ?>
         </div>
 
         <div>
