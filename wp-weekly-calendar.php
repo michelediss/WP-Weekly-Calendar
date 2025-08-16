@@ -1,9 +1,10 @@
 <?php
 /**
- * Plugin Name: WP Weekly Calendar (CPT+ACF • Client-side Filters)
- * Description: Eventi su tabella custom. Categorie dal CPT "attivita" con colore ACF "colore". Filtri client-side, collapse su mobile, giorni visibili da admin.
+ * Plugin Name: WP Weekly Calendar 
+ * Description: Calendario settimanale per le attività dell'ex-OPG "Je so' pazzo".
  * Version: 1.0.0
- * Author: Tu
+ * Author: Michele Paolino
+ * Author URI: https://michelepaolino.com
  * Text Domain: wcw
  */
 if (!defined('ABSPATH')) exit;
