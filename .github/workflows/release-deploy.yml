@@ -117,28 +117,34 @@ jobs:
           path: dist/${{ steps.vars.outputs.zip_name }}
           if-no-files-found: error
 
-  deploy:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Scarica artefatto
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ needs.build.outputs.zip_name }}
-          path: dist
+# ... (jobs: tag, build invariati)
 
-      - name: Estrai zip
-        run: unzip "dist/${{ needs.build.outputs.zip_name }}" -d "dist/unzipped"
+deploy:
+  if: startsWith(github.ref, 'refs/tags/v')
+  needs: build
+  runs-on: ubuntu-latest
+  steps:
+    - name: Scarica artefatto
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ needs.build.outputs.zip_name }}
+        path: dist
 
-      - name: Deploy via SFTP su WordPress
-        uses: SamKirkland/FTP-Deploy-Action@v4
-        with:
-          server:   ${{ secrets.SFTP_HOST }}
-          username: ${{ secrets.SFTP_USERNAME }}
-          password: ${{ secrets.SFTP_PASSWORD }}
-          protocol: sftp
-          port:     ${{ secrets.SFTP_PORT }}
-          local-dir:  dist/unzipped/${{ vars.PLUGIN_SLUG || 'wp-weekly-calendar' }}/
-          server-dir: ${{ vars.REMOTE_DIR || '/home/65c8d3d2c1ac184a28d5ea9c/public_html/wp-content/plugins/wp-weekly-calendar' }}/
-          dangerous-clean-slate: true
+    - name: Estrai zip
+      run: unzip "dist/${{ needs.build.outputs.zip_name }}" -d "dist/unzipped"
+
+    # Deploy SFTP con lftp (supporta porta custom)
+    - name: Deploy via SFTP (lftp)
+      uses: pressidium/lftp-mirror-action@v1
+      with:
+        host: ${{ secrets.SFTP_HOST }}                  # 34.155.237.151
+        port: ${{ secrets.SFTP_PORT }}                  # 55000
+        user: ${{ secrets.SFTP_USERNAME }}              # 65c8d3d2c1ac184a28d5ea9c
+        pass: ${{ secrets.SFTP_PASSWORD }}              # ****
+        localDir:  dist/unzipped/${{ vars.PLUGIN_SLUG || 'wp-weekly-calendar' }}/
+        remoteDir: ${{ vars.REMOTE_DIR || '/home/65c8d3d2c1ac184a28d5ea9c/public_html/wp-content/plugins/wp-weekly-calendar' }}/
+        # Opzioni consigliate
+        onlyNewer: true
+        settings: 'sftp:auto-confirm=yes'
+        options: '--delete --verbose'                   # elimina sul server ciò che non esiste più in locale
+        parallel: 2                                     # trasferimenti paralleli (facoltativo)
