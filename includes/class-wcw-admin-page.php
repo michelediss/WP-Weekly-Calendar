@@ -1,14 +1,10 @@
 <?php
-// =================================================
-// File: includes/class-wcw-admin-page.php
-// =================================================
-
 if (!class_exists('WCW_Admin_Page')):
 class WCW_Admin_Page {
 
   public static function init(){
     add_action('admin_menu', [__CLASS__, 'menu']);
-    // AJAX CRUD eventi
+    // AJAX CRUD eventi (solo admin)
     add_action('wp_ajax_wcw_save_event',   [__CLASS__, 'ajax_save_event']);
     add_action('wp_ajax_wcw_delete_event', [__CLASS__, 'ajax_delete_event']);
     // Salvataggio impostazioni (chiusura + giorni visibili)
@@ -16,70 +12,47 @@ class WCW_Admin_Page {
   }
 
   public static function menu(){
-    add_menu_page(
-      __('Calendario settimanale','wcw'),
-      __('Calendario','wcw'),
-      'manage_options',
-      'wcw-calendar',
-      [__CLASS__,'render_page'],
-      'dashicons-calendar-alt',
-      56
-    );
+    add_menu_page(__('Calendario settimanale','wcw'), __('Calendario','wcw'), 'manage_options', 'wcw-calendar', [__CLASS__,'render_page'], 'dashicons-calendar-alt', 56);
   }
 
   private static function check_caps_and_nonce(){
-    if (!current_user_can('manage_options')) {
-      wp_send_json_error(['message'=>'forbidden'], 403);
-    }
+    if (!current_user_can('manage_options')) wp_send_json_error(['message'=>'forbidden'], 403);
     check_ajax_referer('wcw_nonce','nonce');
   }
 
-  // ---------------- AJAX: crea/aggiorna evento ----------------
+  // AJAX: crea/aggiorna
   public static function ajax_save_event(){
     self::check_caps_and_nonce();
-
     $id   = intval($_POST['id'] ?? 0);
     $name = sanitize_text_field($_POST['name'] ?? '');
     $day  = max(1, min(7, intval($_POST['weekday'] ?? 1)));
     $time = preg_replace('/[^0-9:]/','', $_POST['time'] ?? '');
-    $cat  = intval($_POST['category_id'] ?? 0) ?: null; // ID post CPT 'attivita'
-
-    if ($name === '' || $time === '') {
-      wp_send_json_error(['message'=>'Dati mancanti'], 400);
-    }
-
-    $ok = $id
-      ? WCW_DB::update_event($id, $name, $day, $time, $cat)
-      : WCW_DB::insert_event($name, $day, $time, $cat);
-
+    $cat  = intval($_POST['category_id'] ?? 0) ?: null;
+    if ($name==='' || $time==='') wp_send_json_error(['message'=>'Dati mancanti'], 400);
+    $ok = $id ? WCW_DB::update_event($id,$name,$day,$time,$cat) : WCW_DB::insert_event($name,$day,$time,$cat);
     $ok ? wp_send_json_success() : wp_send_json_error(['message'=>'Errore DB'], 500);
   }
 
-  // ---------------- AJAX: elimina evento ----------------
+  // AJAX: elimina
   public static function ajax_delete_event(){
     self::check_caps_and_nonce();
-    $id = intval($_POST['id'] ?? 0);
-    if (!$id) wp_send_json_error(['message'=>'ID mancante'], 400);
-
+    $id = intval($_POST['id'] ?? 0); if (!$id) wp_send_json_error(['message'=>'ID mancante'], 400);
     $ok = WCW_DB::delete_event($id);
     $ok ? wp_send_json_success() : wp_send_json_error(['message'=>'Errore DB'], 500);
   }
 
-  // ---------------- Salva chiusura + giorni visibili ----------------
+  // Salva chiusura + giorni visibili
   public static function save_closure(){
     if (!current_user_can('manage_options')) wp_die('forbidden');
     check_admin_referer('wcw_closure_form');
 
-    // Chiusura
     update_option('wcw_closure_enabled', isset($_POST['closure_enabled']) ? 1 : 0);
     update_option('wcw_closure_start', sanitize_text_field($_POST['closure_start'] ?? ''));
     update_option('wcw_closure_end',   sanitize_text_field($_POST['closure_end'] ?? ''));
     update_option('wcw_closure_message', sanitize_text_field($_POST['closure_message'] ?? 'Le attività riprenderanno il giorno {date}'));
 
-    // Giorni visibili
     $days = isset($_POST['visible_days']) && is_array($_POST['visible_days'])
-      ? array_map('intval', $_POST['visible_days'])
-      : [];
+      ? array_map('intval', $_POST['visible_days']) : [];
     $days = array_values(array_intersect([1,2,3,4,5,6,7], $days));
     update_option('wcw_visible_days', $days);
 
@@ -87,18 +60,16 @@ class WCW_Admin_Page {
     exit;
   }
 
-  // ---------------- Pagina Admin ----------------
   public static function render_page(){
     if (!current_user_can('manage_options')) return;
 
-    // Dati
-    $cats     = WCW_DB::get_categories();   // dal CPT 'attivita' (ACF: colore)
-    $events   = WCW_DB::get_events('');
-    $enabled  = (bool) get_option('wcw_closure_enabled', 0);
-    $start    = get_option('wcw_closure_start', '');
-    $end      = get_option('wcw_closure_end', '');
-    $msg      = get_option('wcw_closure_message', 'Le attività riprenderanno il giorno {date}');
-    $nonce    = wp_create_nonce('wcw_nonce');
+    $cats   = WCW_DB::get_categories_all();
+    $events = WCW_DB::get_events('');
+    $enabled = (bool) get_option('wcw_closure_enabled', 0);
+    $start = get_option('wcw_closure_start', '');
+    $end   = get_option('wcw_closure_end', '');
+    $msg   = get_option('wcw_closure_message', 'Le attività riprenderanno il giorno {date}');
+    $nonce = wp_create_nonce('wcw_nonce');
 
     $visible_days = get_option('wcw_visible_days', []);
     if (!is_array($visible_days) || empty($visible_days)) $visible_days = [1,2,3,4,5,6,7];
@@ -108,64 +79,39 @@ class WCW_Admin_Page {
       <h1>Calendario settimanale</h1>
 
       <div class="wcw-grid-admin">
-        <!-- Colonna sinistra: CRUD evento -->
         <div>
           <h2>Nuova/modifica attività</h2>
-
           <form id="wcw-event-form" onsubmit="return false;">
             <input type="hidden" name="id" value="">
-
-            <p>
-              <label>Nome
-                <input type="text" name="name" required>
-              </label>
-            </p>
-
-            <p>
-              <label>Giorno
-                <select name="weekday">
-                  <option value="1">Lunedì</option>
-                  <option value="2">Martedì</option>
-                  <option value="3">Mercoledì</option>
-                  <option value="4">Giovedì</option>
-                  <option value="5">Venerdì</option>
-                  <option value="6">Sabato</option>
-                  <option value="7">Domenica</option>
-                </select>
-              </label>
-            </p>
-
-            <p>
-              <label>Orario
-                <input type="time" name="time" required>
-              </label>
-            </p>
-
-            <p>
-              <label>Categoria
-                <select name="category_id">
-                  <option value="">— nessuna —</option>
-                  <?php foreach ($cats as $c): ?>
-                    <option value="<?php echo intval($c->id); ?>">
-                      <?php echo esc_html($c->name); ?>
-                    </option>
-                  <?php endforeach; ?>
-                </select>
-              </label>
-            </p>
-
+            <p><label>Nome <input type="text" name="name" required></label></p>
+            <p><label>Giorno
+              <select name="weekday">
+                <option value="1">Lunedì</option>
+                <option value="2">Martedì</option>
+                <option value="3">Mercoledì</option>
+                <option value="4">Giovedì</option>
+                <option value="5">Venerdì</option>
+                <option value="6">Sabato</option>
+                <option value="7">Domenica</option>
+              </select>
+            </label></p>
+            <p><label>Orario <input type="time" name="time" required></label></p>
+            <p><label>Categoria
+              <select name="category_id">
+                <option value="">— nessuna —</option>
+                <?php foreach ($cats as $c): ?>
+                  <option value="<?php echo intval($c->id); ?>"><?php echo esc_html($c->name); ?></option>
+                <?php endforeach; ?>
+              </select>
+            </label></p>
             <p>
               <button class="button button-primary" id="wcw-save">Salva</button>
               <button class="button" id="wcw-reset" type="reset">Reset</button>
             </p>
-
-            <p class="description">
-              Le categorie sono i post del CPT <code>attivita</code>. Il colore front-end usa ACF <code>colore</code>.
-            </p>
+            <p class="description">Le categorie sono i post del CPT <code>attivita</code>. Il colore front-end usa ACF <code>colore</code>.</p>
           </form>
         </div>
 
-        <!-- Colonna destra: Impostazioni -->
         <div>
           <h2>Impostazioni calendario</h2>
           <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
@@ -200,17 +146,10 @@ class WCW_Admin_Page {
       </div>
 
       <hr>
-
       <h2>Attività salvate</h2>
       <table class="widefat" id="wcw-table">
         <thead>
-          <tr>
-            <th>Nome</th>
-            <th>Giorno</th>
-            <th>Orario</th>
-            <th>Categoria</th>
-            <th>Azione</th>
-          </tr>
+          <tr><th>Nome</th><th>Giorno</th><th>Orario</th><th>Categoria</th><th>Azione</th></tr>
         </thead>
         <tbody>
         <?php foreach ($events as $e): ?>
@@ -249,42 +188,28 @@ class WCW_Admin_Page {
         f.category_id.value = tr.dataset.cat || '';
       }
 
-      // Salva
-      const saveBtn = $('#wcw-save');
-      if (saveBtn) saveBtn.addEventListener('click', async function(){
+      $('#wcw-save').addEventListener('click', async function(){
         const f  = $('#wcw-event-form');
         const fd = new FormData(f);
-        fd.append('action','wcw_save_event');
-        fd.append('nonce', nonce);
-
+        fd.append('action','wcw_save_event'); fd.append('nonce', nonce);
         const res  = await fetch(ajaxurl, { method:'POST', body: fd });
         const json = await res.json();
         if (!json.success) { alert(json.data?.message || 'Errore'); return; }
         location.reload();
       });
 
-      // Modifica
       $$('#wcw-table .wcw-edit').forEach(a => a.addEventListener('click', function(e){
-        e.preventDefault();
-        fillFormFromRow(this.closest('tr'));
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        e.preventDefault(); fillFormFromRow(this.closest('tr')); window.scrollTo({ top: 0, behavior: 'smooth' });
       }));
 
-      // Elimina
       $$('#wcw-table .wcw-delete').forEach(a => a.addEventListener('click', async function(e){
-        e.preventDefault();
-        if (!confirm('Eliminare questa attività?')) return;
-
+        e.preventDefault(); if (!confirm('Eliminare questa attività?')) return;
         const tr = this.closest('tr');
         const fd = new FormData();
-        fd.append('action','wcw_delete_event');
-        fd.append('nonce', nonce);
-        fd.append('id', tr.dataset.id);
-
+        fd.append('action','wcw_delete_event'); fd.append('nonce', nonce); fd.append('id', tr.dataset.id);
         const res  = await fetch(ajaxurl, { method:'POST', body: fd });
         const json = await res.json();
-        if (json.success) tr.remove();
-        else alert(json.data?.message || 'Errore');
+        if (json.success) tr.remove(); else alert(json.data?.message || 'Errore');
       }));
     })();
     </script>
@@ -292,8 +217,8 @@ class WCW_Admin_Page {
   }
 
   private static function day_label($d){
-    $map = [1=>'Lunedì',2=>'Martedì',3=>'Mercoledì',4=>'Giovedì',5=>'Venerdì',6=>'Sabato',7=>'Domenica'];
-    return $map[$d] ?? '';
+    $m=[1=>'Lunedì',2=>'Martedì',3=>'Mercoledì',4=>'Giovedì',5=>'Venerdì',6=>'Sabato',7=>'Domenica'];
+    return $m[$d] ?? '';
   }
 }
 endif;
