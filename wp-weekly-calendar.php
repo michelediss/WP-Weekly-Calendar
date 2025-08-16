@@ -1,31 +1,32 @@
 <?php
 /**
- * Plugin Name:       WP Weekly Calendar (Attività = Categorie)
- * Description:       Calendario settimanale i cui "filtri categoria" derivano 1:1 dal CPT 'attivita'. Ogni attività è una categoria con colore ACF e link /attivita/slug.
- * Version:           2.0.0
- * Author:            WP Weekly Calendar Team
- * Text Domain:       wp-weekly-calendar
+ * Plugin Name: WP Weekly Calendar (DB + Single Admin + Grid AJAX)
+ * Description: Attività gestite su tabelle custom, unica pagina admin, frontend a 7 colonne con filtri AJAX.
+ * Version: 0.5.0
+ * Author: Tu
+ * Text Domain: wcw
  */
 
-if ( ! defined( 'ABSPATH' ) ) exit;
+if (!defined('ABSPATH')) exit;
 
-define( 'WPWC_FILE', __FILE__ );
-define( 'WPWC_DIR', plugin_dir_path( __FILE__ ) );
-define( 'WPWC_URL', plugin_dir_url( __FILE__ ) );
-define( 'WPWC_VER', '2.0.0' );
+define('WCW_VERSION', '0.5.0');
+define('WCW_PLUGIN_FILE', __FILE__);
+define('WCW_PLUGIN_DIR', plugin_dir_path(__FILE__));
+define('WCW_PLUGIN_URL', plugin_dir_url(__FILE__));
 
-require_once WPWC_DIR . 'includes/helpers.php';
-require_once WPWC_DIR . 'includes/class-wpwc-plugin.php';
+require_once WCW_PLUGIN_DIR . 'includes/class-wcw-db.php';
+require_once WCW_PLUGIN_DIR . 'includes/class-wcw-closures.php';
+require_once WCW_PLUGIN_DIR . 'includes/class-wcw-shortcode.php';
+require_once WCW_PLUGIN_DIR . 'includes/class-wcw-admin-page.php';
 
-register_activation_hook( __FILE__, function() {
-	\WPWC\Plugin::instance()->activate();
+register_activation_hook(__FILE__, function(){ WCW_DB::create_tables(); });
+add_action('plugins_loaded', function(){ WCW_Shortcode::init(); if (is_admin()) WCW_Admin_Page::init(); });
+
+add_action('wp_enqueue_scripts', function(){
+  wp_enqueue_style('wcw-public', WCW_PLUGIN_URL . 'assets/public.css', [], WCW_VERSION);
 });
-
-register_deactivation_hook( __FILE__, function() {
-	\WPWC\Plugin::instance()->deactivate();
+add_action('admin_enqueue_scripts', function($hook){
+  if ($hook === 'toplevel_page_wcw-calendar') {
+    wp_enqueue_style('wcw-admin', WCW_PLUGIN_URL . 'assets/admin.css', [], WCW_VERSION);
+  }
 });
-
-add_action( 'plugins_loaded', function() {
-	load_plugin_textdomain( 'wp-weekly-calendar', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
-	\WPWC\Plugin::instance()->boot();
-} );

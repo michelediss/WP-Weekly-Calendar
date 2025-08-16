@@ -1,713 +1,547 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -euo pipefail
 
-EXPECTED_SLUG="wp-weekly-calendar"
-FORCE=0
-CHECK=1
+PLUGIN_SLUG="wp-weekly-calendar"
+VERSION="0.5.0"
 
-usage() {
-  cat <<EOF
-Scaffolder del plugin WP Weekly Calendar (da eseguire *dentro* ${EXPECTED_SLUG}/).
-
-USO:
-  $(basename "$0") [--force] [--no-check]
-
-OPZIONI:
-  --force     Sovrascrive i file se esistono già.
-  --no-check  Non controlla che la directory corrente si chiami '${EXPECTED_SLUG}'.
-
-ESEMPI:
-  $(basename "$0")
-  $(basename "$0") --force
-EOF
-}
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --force) FORCE=1; shift;;
-    --no-check) CHECK=0; shift;;
-    -h|--help) usage; exit 0;;
-    *) echo "Argomento sconosciuto: $1"; usage; exit 1;;
-  esac
-done
-
-# Verifica di essere dentro la cartella corretta
-if [[ $CHECK -eq 1 ]]; then
-  BASENAME="$(basename "$PWD")"
-  if [[ "$BASENAME" != "$EXPECTED_SLUG" ]]; then
-    echo "ERRORE: sei in '$BASENAME', ma lo script va eseguito dentro '${EXPECTED_SLUG}/'."
-    echo "Usa --no-check per ignorare questo controllo."
-    exit 1
-  fi
+if [[ -d "$PLUGIN_SLUG" ]]; then
+  echo "La cartella '$PLUGIN_SLUG' esiste già. Esco per non sovrascrivere."
+  exit 1
 fi
 
-echo "→ Preparazione struttura cartelle"
-mkdir -p includes assets/css assets/js templates
+echo "-> Crea struttura cartelle"
+mkdir -p "${PLUGIN_SLUG}/includes" "${PLUGIN_SLUG}/assets"
 
-FILES=(
-  "wp-weekly-calendar.php"
-  "readme.txt"
-  "includes/helpers.php"
-  "includes/class-wpwc-plugin.php"
-  "includes/class-wpwc-post-types.php"
-  "includes/class-wpwc-metaboxes.php"
-  "includes/class-wpwc-activities.php"
-  "includes/class-wpwc-rest.php"
-  "includes/class-wpwc-shortcodes.php"
-  "includes/template-loader.php"
-  "assets/css/calendar.css"
-  "assets/js/calendar.js"
-  "templates/calendar.php"
-)
-
-if [[ $FORCE -ne 1 ]]; then
-  echo "→ Controllo file esistenti (usa --force per sovrascrivere)"
-  for f in "${FILES[@]}"; do
-    if [[ -e "$f" ]]; then
-      echo "ERRORE: esiste già '$f'. Interrompo per sicurezza. (--force per sovrascrivere)"
-      exit 1
-    fi
-  done
-fi
-
-# --- wp-weekly-calendar.php ---
-cat > "wp-weekly-calendar.php" <<'PHP'
+echo "-> Scrive: ${PLUGIN_SLUG}/wp-weekly-calendar.php"
+cat > "${PLUGIN_SLUG}/wp-weekly-calendar.php" <<'PHP'
 <?php
 /**
- * Plugin Name:       WP Weekly Calendar (Attività = Categorie)
- * Description:       Calendario settimanale i cui "filtri categoria" derivano 1:1 dal CPT 'attivita'. Ogni attività è una categoria con colore ACF e link /attivita/slug.
- * Version:           2.0.0
- * Author:            WP Weekly Calendar Team
- * Text Domain:       wp-weekly-calendar
+ * Plugin Name: WP Weekly Calendar (DB + Single Admin + Grid AJAX)
+ * Description: Attività gestite su tabelle custom, unica pagina admin, frontend a 7 colonne con filtri AJAX.
+ * Version: 0.5.0
+ * Author: Tu
+ * Text Domain: wcw
  */
 
-if ( ! defined( 'ABSPATH' ) ) exit;
+if (!defined('ABSPATH')) exit;
 
-define( 'WPWC_FILE', __FILE__ );
-define( 'WPWC_DIR', plugin_dir_path( __FILE__ ) );
-define( 'WPWC_URL', plugin_dir_url( __FILE__ ) );
-define( 'WPWC_VER', '2.0.0' );
+define('WCW_VERSION', '0.5.0');
+define('WCW_PLUGIN_FILE', __FILE__);
+define('WCW_PLUGIN_DIR', plugin_dir_path(__FILE__));
+define('WCW_PLUGIN_URL', plugin_dir_url(__FILE__));
 
-require_once WPWC_DIR . 'includes/helpers.php';
-require_once WPWC_DIR . 'includes/class-wpwc-plugin.php';
+require_once WCW_PLUGIN_DIR . 'includes/class-wcw-db.php';
+require_once WCW_PLUGIN_DIR . 'includes/class-wcw-closures.php';
+require_once WCW_PLUGIN_DIR . 'includes/class-wcw-shortcode.php';
+require_once WCW_PLUGIN_DIR . 'includes/class-wcw-admin-page.php';
 
-register_activation_hook( __FILE__, function() {
-	\WPWC\Plugin::instance()->activate();
+register_activation_hook(__FILE__, function(){ WCW_DB::create_tables(); });
+add_action('plugins_loaded', function(){ WCW_Shortcode::init(); if (is_admin()) WCW_Admin_Page::init(); });
+
+add_action('wp_enqueue_scripts', function(){
+  wp_enqueue_style('wcw-public', WCW_PLUGIN_URL . 'assets/public.css', [], WCW_VERSION);
 });
-
-register_deactivation_hook( __FILE__, function() {
-	\WPWC\Plugin::instance()->deactivate();
+add_action('admin_enqueue_scripts', function($hook){
+  if ($hook === 'toplevel_page_wcw-calendar') {
+    wp_enqueue_style('wcw-admin', WCW_PLUGIN_URL . 'assets/admin.css', [], WCW_VERSION);
+  }
 });
-
-add_action( 'plugins_loaded', function() {
-	load_plugin_textdomain( 'wp-weekly-calendar', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
-	\WPWC\Plugin::instance()->boot();
-} );
 PHP
 
-# --- readme.txt ---
-cat > "readme.txt" <<'TXT'
-=== WP Weekly Calendar (Attività = Categorie) ===
-Contributors: your-name
-Tags: calendar, weekly, eventi, cpt, acf
-Requires at least: 6.0
-Tested up to: 6.6
-Requires PHP: 7.4
-Stable tag: 2.0.0
-License: GPLv2 or later
-
-Il calendario settimanale in cui le categorie NON sono tassonomie ma i post del CPT 'attivita'. Ogni 'attività' equivale a una categoria del calendario con colore ACF e link /attivita/slug.
-
-== Descrizione ==
-- Ogni post del CPT `attivita` è una categoria utilizzabile per gli eventi.
-- Il colore è letto dal campo ACF (name: `colore`).
-- Gli eventi (`wpwc_event`) hanno: giorno settimana (1-7), ora inizio/fine, attività collegata.
-- Shortcode: `[weekly_calendar]`.
-
-== Installazione ==
-1. Copia questa cartella in `wp-content/plugins/`
-2. Attiva il plugin.
-3. Assicurati di avere il CPT `attivita` con campo ACF `colore`.
-4. Crea post `attivita` e poi crea eventi associandoli.
-
-== Shortcode ==
-[weekly_calendar]
-
-== REST ==
-- GET /wp-json/wpwc/v1/attivita
-- GET /wp-json/wpwc/v1/events?day=1&attivita=123
-
-== Note ==
-Le "categorie" del calendario sono i post `attivita`. I link puntano a /attivita/slug.
-TXT
-
-# --- includes/helpers.php ---
-cat > "includes/helpers.php" <<'PHP'
+echo "-> Scrive: ${PLUGIN_SLUG}/includes/class-wcw-db.php"
+cat > "${PLUGIN_SLUG}/includes/class-wcw-db.php" <<'PHP'
 <?php
-namespace WPWC;
+if (!class_exists('WCW_DB')):
+class WCW_DB {
+  public static function table_events(){ global $wpdb; return $wpdb->prefix.'wcw_events'; }
+  public static function table_cats(){ global $wpdb; return $wpdb->prefix.'wcw_categories'; }
 
-if ( ! defined( 'ABSPATH' ) ) exit;
+  public static function create_tables(){
+    global $wpdb; $charset = $wpdb->get_charset_collate();
+    $t_events = self::table_events();
+    $t_cats   = self::table_cats();
+    require_once ABSPATH.'wp-admin/includes/upgrade.php';
 
-function get_attivita_color( $attivita_id ): string {
-	$color = get_post_meta( $attivita_id, 'colore', true );
-	if ( ! is_string( $color ) || ! preg_match( '/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/', $color ) ) {
-		$color = '#777777';
-	}
-	return $color;
+    $sql_cats = "CREATE TABLE $t_cats (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      name VARCHAR(80) NOT NULL,
+      slug VARCHAR(80) NOT NULL UNIQUE,
+      PRIMARY KEY (id)
+    ) $charset;";
+
+    $sql_events = "CREATE TABLE $t_events (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      name VARCHAR(120) NOT NULL,
+      weekday TINYINT UNSIGNED NOT NULL,
+      time TIME NOT NULL,
+      category_id BIGINT UNSIGNED NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_day_time (weekday, time),
+      KEY idx_cat (category_id)
+    ) $charset;";
+
+    dbDelta($sql_cats);
+    dbDelta($sql_events);
+  }
+
+  // Categorie
+  public static function get_categories(){
+    global $wpdb; return $wpdb->get_results("SELECT * FROM ".self::table_cats()." ORDER BY name ASC");
+  }
+  public static function upsert_category($name){
+    global $wpdb; $name = trim($name); if ($name==='') return false;
+    $slug = sanitize_title($name);
+    $t = self::table_cats();
+    $exists = $wpdb->get_var($wpdb->prepare("SELECT id FROM $t WHERE slug=%s", $slug));
+    if ($exists) return (int)$exists;
+    $wpdb->insert($t, ['name'=>$name,'slug'=>$slug]);
+    return (int)$wpdb->insert_id;
+  }
+  public static function delete_category($id){
+    global $wpdb; $id = (int)$id; if(!$id) return false;
+    $wpdb->update(self::table_events(), ['category_id'=>null], ['category_id'=>$id]);
+    return (bool)$wpdb->delete(self::table_cats(), ['id'=>$id]);
+  }
+
+  // Eventi
+  public static function get_events($category_slug = ''){
+    global $wpdb; $t_e = self::table_events(); $t_c = self::table_cats();
+    if ($category_slug) {
+      $sql = $wpdb->prepare(
+        "SELECT e.*, c.name AS category_name, c.slug AS category_slug
+         FROM $t_e e LEFT JOIN $t_c c ON c.id=e.category_id
+         WHERE c.slug=%s
+         ORDER BY e.time ASC, e.weekday ASC, e.name ASC",
+         sanitize_title($category_slug)
+      );
+    } else {
+      $sql = "SELECT e.*, c.name AS category_name, c.slug AS category_slug
+              FROM $t_e e LEFT JOIN $t_c c ON c.id=e.category_id
+              ORDER BY e.time ASC, e.weekday ASC, e.name ASC";
+    }
+    return $wpdb->get_results($sql);
+  }
+
+  public static function insert_event($name,$weekday,$time,$category_id){
+    global $wpdb; $weekday=(int)$weekday; $category_id = $category_id? (int)$category_id : null;
+    return (bool)$wpdb->insert(self::table_events(), [
+      'name'=>sanitize_text_field($name),
+      'weekday'=>max(1,min(7,$weekday)),
+      'time'=>preg_replace('/[^0-9:]/','',$time),
+      'category_id'=>$category_id,
+    ]);
+  }
+
+  public static function update_event($id,$name,$weekday,$time,$category_id){
+    global $wpdb; $id=(int)$id; if(!$id) return false;
+    return (bool)$wpdb->update(self::table_events(), [
+      'name'=>sanitize_text_field($name),
+      'weekday'=>max(1,min(7,(int)$weekday)),
+      'time'=>preg_replace('/[^0-9:]/','',$time),
+      'category_id'=>$category_id? (int)$category_id : null,
+    ], ['id'=>$id]);
+  }
+
+  public static function delete_event($id){
+    global $wpdb; return (bool)$wpdb->delete(self::table_events(), ['id'=>(int)$id]);
+  }
 }
-
-function sanitize_time_24h( $time ): string {
-	if ( ! is_string( $time ) ) return '';
-	if ( preg_match( '/^([01]\d|2[0-3]):([0-5]\d)$/', $time, $m ) ) return $m[0];
-	return '';
-}
-
-function week_days(): array {
-	return [ '1' => __( 'Lunedì', 'wp-weekly-calendar' ),
-	         '2' => __( 'Martedì', 'wp-weekly-calendar' ),
-	         '3' => __( 'Mercoledì', 'wp-weekly-calendar' ),
-	         '4' => __( 'Giovedì', 'wp-weekly-calendar' ),
-	         '5' => __( 'Venerdì', 'wp-weekly-calendar' ),
-	         '6' => __( 'Sabato', 'wp-weekly-calendar' ),
-	         '7' => __( 'Domenica', 'wp-weekly-calendar' ) ];
-}
+endif;
 PHP
 
-# --- includes/class-wpwc-plugin.php ---
-cat > "includes/class-wpwc-plugin.php" <<'PHP'
+echo "-> Scrive: ${PLUGIN_SLUG}/includes/class-wcw-closures.php"
+cat > "${PLUGIN_SLUG}/includes/class-wcw-closures.php" <<'PHP'
 <?php
-namespace WPWC;
-
-if ( ! defined( 'ABSPATH' ) ) exit;
-
-require_once WPWC_DIR . 'includes/class-wpwc-post-types.php';
-require_once WPWC_DIR . 'includes/class-wpwc-metaboxes.php';
-require_once WPWC_DIR . 'includes/class-wpwc-activities.php';
-require_once WPWC_DIR . 'includes/class-wpwc-rest.php';
-require_once WPWC_DIR . 'includes/class-wpwc-shortcodes.php';
-require_once WPWC_DIR . 'includes/template-loader.php';
-
-final class Plugin {
-
-	private static $instance = null;
-
-	public static function instance(): self {
-		if ( self::$instance === null ) self::$instance = new self();
-		return self::$instance;
-	}
-
-	public function boot() {
-		add_action( 'init', [ Post_Types::class, 'register' ] );
-		add_action( 'init', [ $this, 'register_assets' ] );
-		Metaboxes::hooks();
-		REST::hooks();
-		Shortcodes::hooks();
-		Template_Loader::hooks();
-	}
-
-	public function register_assets() {
-		wp_register_style( 'wpwc-calendar', WPWC_URL . 'assets/css/calendar.css', [], WPWC_VER );
-		wp_register_script( 'wpwc-calendar', WPWC_URL . 'assets/js/calendar.js', [ 'wp-element' ], WPWC_VER, true );
-		wp_localize_script( 'wpwc-calendar', 'WPWC', [
-			'rest'   => [ 'root' => esc_url_raw( rest_url( 'wpwc/v1' ) ), 'nonce' => wp_create_nonce( 'wp_rest' ) ],
-			'i18n'   => [ 'all' => __( 'Tutte le attività', 'wp-weekly-calendar' ) ],
-		] );
-	}
-
-	public function activate() {
-		Post_Types::register();
-		flush_rewrite_rules();
-	}
-
-	public function deactivate() {
-		flush_rewrite_rules();
-	}
+if (!class_exists('WCW_Closures')):
+class WCW_Closures {
+  public static function is_closed_now(){
+    if (!get_option('wcw_closure_enabled', 0)) return false;
+    $start = get_option('wcw_closure_start', '');
+    $end   = get_option('wcw_closure_end', '');
+    if (!$start || !$end) return false;
+    $tz = new DateTimeZone('Europe/Rome');
+    $today = new DateTime('today', $tz);
+    $s = DateTime::createFromFormat('Y-m-d', $start, $tz);
+    $e = DateTime::createFromFormat('Y-m-d', $end, $tz);
+    if (!$s || !$e) return false;
+    return $today >= $s && $today <= $e;
+  }
+  public static function message_html(){
+    $end = get_option('wcw_closure_end', '');
+    $tpl = get_option('wcw_closure_message', 'Le attività riprenderanno il giorno {date}');
+    if (!$end) return '';
+    $tz = new DateTimeZone('Europe/Rome');
+    $e = DateTime::createFromFormat('Y-m-d', $end, $tz);
+    $months = [1=>'gennaio',2=>'febbraio',3=>'marzo',4=>'aprile',5=>'maggio',6=>'giugno',7=>'luglio',8=>'agosto',9=>'settembre',10=>'ottobre',11=>'novembre',12=>'dicembre'];
+    $date_it = intval($e->format('j')) . ' ' . $months[intval($e->format('n'))] . ' ' . $e->format('Y');
+    $msg = str_replace('{date}', $date_it, $tpl);
+    return '<div class="wcw-closure-message">' . esc_html($msg) . '</div>';
+  }
 }
+endif;
 PHP
 
-# --- includes/class-wpwc-post-types.php ---
-cat > "includes/class-wpwc-post-types.php" <<'PHP'
+echo "-> Scrive: ${PLUGIN_SLUG}/includes/class-wcw-shortcode.php"
+cat > "${PLUGIN_SLUG}/includes/class-wcw-shortcode.php" <<'PHP'
 <?php
-namespace WPWC;
+if (!class_exists('WCW_Shortcode')):
+class WCW_Shortcode {
 
-if ( ! defined( 'ABSPATH' ) ) exit;
+  public static function init(){
+    add_shortcode('wcw_schedule', [__CLASS__, 'render']);
+    add_action('wp_ajax_wpwcf_filter', [__CLASS__, 'ajax_filter']);
+    add_action('wp_ajax_nopriv_wpwcf_filter', [__CLASS__, 'ajax_filter']);
+  }
 
-class Post_Types {
-	public static function register() {
-		$labels = [
-			'name'               => __( 'Eventi settimanali', 'wp-weekly-calendar' ),
-			'singular_name'      => __( 'Evento settimanale', 'wp-weekly-calendar' ),
-			'add_new'            => __( 'Aggiungi nuovo', 'wp-weekly-calendar' ),
-			'add_new_item'       => __( 'Aggiungi nuovo evento', 'wp-weekly-calendar' ),
-			'edit_item'          => __( 'Modifica evento', 'wp-weekly-calendar' ),
-			'new_item'           => __( 'Nuovo evento', 'wp-weekly-calendar' ),
-			'view_item'          => __( 'Vedi evento', 'wp-weekly-calendar' ),
-			'search_items'       => __( 'Cerca eventi', 'wp-weekly-calendar' ),
-			'not_found'          => __( 'Nessun evento trovato', 'wp-weekly-calendar' ),
-			'not_found_in_trash' => __( 'Nessun evento nel cestino', 'wp-weekly-calendar' ),
-			'menu_name'          => __( 'Calendario', 'wp-weekly-calendar' ),
-		];
+  public static function render($atts){
+    $atts = shortcode_atts(['category' => ''], $atts, 'wcw_schedule');
+    if (WCW_Closures::is_closed_now()) return WCW_Closures::message_html();
 
-		register_post_type( 'wpwc_event', [
-			'labels' => $labels,
-			'public' => true,
-			'show_ui' => true,
-			'show_in_menu' => true,
-			'menu_icon' => 'dashicons-calendar-alt',
-			'supports' => [ 'title', 'editor' ],
-			'show_in_rest' => true,
-			'has_archive' => false,
-			'rewrite' => false,
-		] );
-	}
+    $qs = isset($_GET['attivita']) ? sanitize_text_field(wp_unslash($_GET['attivita'])) : '';
+    $current = $qs !== '' ? $qs : $atts['category'];
+
+    $cats = WCW_DB::get_categories();
+    ob_start(); ?>
+    <div class="wpwc-wrap">
+
+      <div class="wpwc-toolbar" role="tablist" aria-label="Filtra per attività">
+        <a class="wpwc-chip<?php echo $current==='' ? ' is-active' : ''; ?>" href="#" data-wpwc-cat="">
+          <span class="dot" style="background:#999"></span>
+          Tutte le attività
+        </a>
+        <?php foreach ($cats as $c): ?>
+          <a class="wpwc-chip<?php echo $current===$c->slug ? ' is-active' : ''; ?>" href="#" data-wpwc-cat="<?php echo esc_attr($c->slug); ?>">
+            <span class="dot" style="background:#777777"></span>
+            <?php echo esc_html($c->name); ?>
+          </a>
+        <?php endforeach; ?>
+      </div>
+
+      <div id="wpwc-grid">
+        <?php echo self::render_grid_html($current); ?>
+      </div>
+
+    </div>
+
+    <script>
+    (function(){
+      const wrap = document.currentScript.closest('.wpwc-wrap');
+      const grid = wrap.querySelector('#wpwc-grid');
+      const chips = wrap.querySelectorAll('.wpwc-chip');
+      const ajaxUrl = "<?php echo esc_url(admin_url('admin-ajax.php')); ?>";
+
+      function setActive(el){ chips.forEach(c => c.classList.remove('is-active')); el.classList.add('is-active'); }
+      function updateURL(slug){
+        const url = new URL(window.location);
+        if (slug) url.searchParams.set('attivita', slug);
+        else url.searchParams.delete('attivita');
+        window.history.replaceState({}, '', url);
+      }
+      async function fetchGrid(slug){
+        const fd = new FormData();
+        fd.append('action','wpwcf_filter');
+        fd.append('category', slug);
+        const res = await fetch(ajaxUrl, { method:'POST', body: fd, credentials:'same-origin' });
+        if (!res.ok) return;
+        grid.innerHTML = await res.text();
+      }
+      chips.forEach(ch => ch.addEventListener('click', function(e){
+        e.preventDefault();
+        const slug = this.getAttribute('data-wpwc-cat') || '';
+        setActive(this);
+        updateURL(slug);
+        fetchGrid(slug);
+      }));
+    })();
+    </script>
+    <?php
+    return ob_get_clean();
+  }
+
+  private static function render_grid_html($category_slug = ''){
+    $by = [1=>[],2=>[],3=>[],4=>[],5=>[],6=>[],7=>[]];
+    $rows = WCW_DB::get_events($category_slug);
+
+    foreach ($rows as $r) { $d = (int)$r->weekday; if ($d<1 || $d>7) continue; $by[$d][] = $r; }
+    foreach ($by as $d=>&$items) { usort($items, fn($a,$b)=>strcmp($a->time,$b->time)); }
+    unset($items);
+
+    $labels = [1=>'Lunedì',2=>'Martedì',3=>'Mercoledì',4=>'Giovedì',5=>'Venerdì',6=>'Sabato',7=>'Domenica'];
+
+    ob_start(); ?>
+    <div class="wpwc-grid">
+      <div class="wpwc-head">
+        <?php for ($d=1; $d<=7; $d++): ?>
+          <div class="wpwc-day"><?php echo esc_html($labels[$d]); ?></div>
+        <?php endfor; ?>
+      </div>
+      <div class="wpwc-cols">
+        <?php for ($d=1; $d<=7; $d++): ?>
+          <div class="wpwc-cell" data-day="<?php echo (int)$d; ?>">
+            <?php if (empty($by[$d])): ?>
+              <!-- nessun evento -->
+            <?php else: foreach ($by[$d] as $ev): ?>
+              <div class="wpwc-event" data-cat="<?php echo esc_attr($ev->category_slug ?: ''); ?>">
+                <div class="title"><?php echo esc_html($ev->name); ?></div>
+                <div class="meta">
+                  <?php echo esc_html(substr($ev->time,0,5)); ?>
+                  <?php if (!empty($ev->category_name)): ?>
+                    • <a href="<?php echo esc_url( home_url('/attivita/' . ($ev->category_slug ?? '')) ); ?>">
+                      <?php echo esc_html($ev->category_name); ?>
+                    </a>
+                  <?php endif; ?>
+                </div>
+              </div>
+            <?php endforeach; endif; ?>
+          </div>
+        <?php endfor; ?>
+      </div>
+    </div>
+    <?php return ob_get_clean();
+  }
+
+  public static function ajax_filter(){
+    $slug = isset($_POST['category']) ? sanitize_text_field(wp_unslash($_POST['category'])) : '';
+    echo self::render_grid_html($slug);
+    wp_die();
+  }
 }
+endif;
 PHP
 
-# --- includes/class-wpwc-metaboxes.php ---
-cat > "includes/class-wpwc-metaboxes.php" <<'PHP'
+echo "-> Scrive: ${PLUGIN_SLUG}/includes/class-wcw-admin-page.php"
+cat > "${PLUGIN_SLUG}/includes/class-wcw-admin-page.php" <<'PHP'
 <?php
-namespace WPWC;
+if (!class_exists('WCW_Admin_Page')):
+class WCW_Admin_Page {
+  public static function init(){
+    add_action('admin_menu', [__CLASS__, 'menu']);
+    add_action('wp_ajax_wcw_save_event',   [__CLASS__, 'ajax_save_event']);
+    add_action('wp_ajax_wcw_delete_event', [__CLASS__, 'ajax_delete_event']);
+    add_action('wp_ajax_wcw_add_cat',      [__CLASS__, 'ajax_add_cat']);
+    add_action('wp_ajax_wcw_delete_cat',   [__CLASS__, 'ajax_delete_cat']);
+    add_action('admin_post_wcw_save_closure', [__CLASS__, 'save_closure']);
+  }
 
-if ( ! defined( 'ABSPATH' ) ) exit;
+  public static function menu(){
+    add_menu_page(__('Calendario settimanale','wcw'), __('Calendario','wcw'), 'manage_options', 'wcw-calendar', [__CLASS__,'render_page'], 'dashicons-calendar-alt', 56);
+  }
 
-class Metaboxes {
+  private static function check_caps_and_nonce(){ if (!current_user_can('manage_options')) wp_send_json_error(['message'=>'forbidden'], 403); check_ajax_referer('wcw_nonce','nonce'); }
 
-	public static function hooks() {
-		add_action( 'add_meta_boxes', [ __CLASS__, 'add' ] );
-		add_action( 'save_post_wpwc_event', [ __CLASS__, 'save' ] );
-	}
+  public static function ajax_save_event(){
+    self::check_caps_and_nonce();
+    $id   = intval($_POST['id'] ?? 0);
+    $name = sanitize_text_field($_POST['name'] ?? '');
+    $day  = max(1,min(7,intval($_POST['weekday'] ?? 1)));
+    $time = preg_replace('/[^0-9:]/','', $_POST['time'] ?? '');
+    $cat  = intval($_POST['category_id'] ?? 0) ?: null;
+    if ($name==='' || $time==='') wp_send_json_error(['message'=>'Dati mancanti'], 400);
+    $ok = $id ? WCW_DB::update_event($id,$name,$day,$time,$cat) : WCW_DB::insert_event($name,$day,$time,$cat);
+    $ok ? wp_send_json_success() : wp_send_json_error(['message'=>'Errore DB'], 500);
+  }
+  public static function ajax_delete_event(){ self::check_caps_and_nonce(); $id=intval($_POST['id']??0); if(!$id) wp_send_json_error(); $ok=WCW_DB::delete_event($id); $ok? wp_send_json_success(): wp_send_json_error(['message'=>'Errore DB'],500);}
+  public static function ajax_add_cat(){ self::check_caps_and_nonce(); $name=sanitize_text_field($_POST['name']??''); $id=WCW_DB::upsert_category($name); if($id) wp_send_json_success(['id'=>$id]); else wp_send_json_error(['message'=>'Errore categoria'],400);}
+  public static function ajax_delete_cat(){ self::check_caps_and_nonce(); $id=intval($_POST['id']??0); $ok=WCW_DB::delete_category($id); $ok? wp_send_json_success(): wp_send_json_error(['message'=>'Errore DB'],500);}
 
-	public static function add() {
-		add_meta_box(
-			'wpwc_event_details',
-			__( 'Dettagli evento settimanale', 'wp-weekly-calendar' ),
-			[ __CLASS__, 'render' ],
-			'wpwc_event',
-			'normal',
-			'high'
-		);
-	}
+  public static function save_closure(){
+    if (!current_user_can('manage_options')) wp_die('forbidden');
+    check_admin_referer('wcw_closure_form');
+    update_option('wcw_closure_enabled', isset($_POST['closure_enabled']) ? 1 : 0);
+    update_option('wcw_closure_start', sanitize_text_field($_POST['closure_start'] ?? ''));
+    update_option('wcw_closure_end', sanitize_text_field($_POST['closure_end'] ?? ''));
+    update_option('wcw_closure_message', sanitize_text_field($_POST['closure_message'] ?? 'Le attività riprenderanno il giorno {date}'));
+    wp_redirect(admin_url('admin.php?page=wcw-calendar&saved=1'));
+    exit;
+  }
 
-	public static function render( $post ) {
-		wp_nonce_field( 'wpwc_event_save', 'wpwc_event_nonce' );
+  public static function render_page(){
+    if (!current_user_can('manage_options')) return;
+    $cats = WCW_DB::get_categories();
+    $events = WCW_DB::get_events('');
+    $enabled = (bool) get_option('wcw_closure_enabled', 0);
+    $start = get_option('wcw_closure_start', '');
+    $end   = get_option('wcw_closure_end', '');
+    $msg   = get_option('wcw_closure_message', 'Le attività riprenderanno il giorno {date}');
+    $nonce = wp_create_nonce('wcw_nonce'); ?>
+    <div class="wrap">
+      <h1>Calendario settimanale</h1>
 
-		$day   = get_post_meta( $post->ID, '_wpwc_day', true ) ?: '1';
-		$start = get_post_meta( $post->ID, '_wpwc_start', true ) ?: '';
-		$end   = get_post_meta( $post->ID, '_wpwc_end', true )   ?: '';
-		$att   = get_post_meta( $post->ID, '_wpwc_attivita', true ) ?: '';
+      <div class="wcw-grid-admin">
+        <div>
+          <h2>Nuova/modifica attività</h2>
+          <form id="wcw-event-form" onsubmit="return false;">
+            <input type="hidden" name="id" value="">
+            <p><label>Nome <input type="text" name="name" required></label></p>
+            <p><label>Giorno
+              <select name="weekday">
+                <option value="1">Lunedì</option>
+                <option value="2">Martedì</option>
+                <option value="3">Mercoledì</option>
+                <option value="4">Giovedì</option>
+                <option value="5">Venerdì</option>
+                <option value="6">Sabato</option>
+                <option value="7">Domenica</option>
+              </select>
+            </label></p>
+            <p><label>Orario <input type="time" name="time" required></label></p>
+            <p><label>Categoria
+              <select name="category_id">
+                <option value="">— nessuna —</option>
+                <?php foreach ($cats as $c): ?>
+                  <option value="<?php echo intval($c->id); ?>"><?php echo esc_html($c->name); ?></option>
+                <?php endforeach; ?>
+              </select>
+            </label></p>
+            <p>
+              <button class="button button-primary" id="wcw-save">Salva</button>
+              <button class="button" id="wcw-reset" type="reset">Reset</button>
+            </p>
+          </form>
 
-		$days = week_days();
+          <h3>Categorie</h3>
+          <form id="wcw-cat-form" onsubmit="return false;">
+            <input type="text" name="name" placeholder="Nome categoria">
+            <button class="button" id="wcw-add-cat">Aggiungi</button>
+          </form>
+          <ul id="wcw-cat-list">
+            <?php foreach ($cats as $c): ?>
+              <li data-id="<?php echo intval($c->id); ?>"><?php echo esc_html($c->name); ?> <a href="#" class="wcw-del-cat">Elimina</a></li>
+            <?php endforeach; ?>
+          </ul>
+        </div>
 
-		$attivita = get_posts( [
-			'post_type'   => 'attivita',
-			'post_status' => 'publish',
-			'numberposts' => -1,
-			'orderby'     => 'title',
-			'order'       => 'ASC',
-			'fields'      => 'ids',
-		] );
-		?>
-		<style>
-			.wpwc-field{margin-bottom:12px;}
-			.wpwc-inline{display:flex;gap:12px;align-items:center}
-			.wpwc-colorchip{display:inline-block;width:14px;height:14px;border-radius:50%;margin-left:6px;vertical-align:middle;border:1px solid #ccd0d4}
-		</style>
+        <div>
+          <h2>Periodo di chiusura</h2>
+          <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+            <?php wp_nonce_field('wcw_closure_form'); ?>
+            <input type="hidden" name="action" value="wcw_save_closure">
+            <p><label><input type="checkbox" name="closure_enabled" <?php checked($enabled); ?>> Abilita chiusura</label></p>
+            <p><label>Dal <input type="date" name="closure_start" value="<?php echo esc_attr($start); ?>"></label></p>
+            <p><label>Al <input type="date" name="closure_end" value="<?php echo esc_attr($end); ?>"></label></p>
+            <p><label>Messaggio <input type="text" name="closure_message" size="50" value="<?php echo esc_attr($msg); ?>"></label></p>
+            <p><button class="button" type="submit">Salva impostazioni</button></p>
+          </form>
+        </div>
+      </div>
 
-		<div class="wpwc-field">
-			<label for="wpwc_day"><strong><?php esc_html_e( 'Giorno della settimana', 'wp-weekly-calendar' ); ?></strong></label><br>
-			<select id="wpwc_day" name="wpwc_day">
-				<?php foreach ( $days as $k => $label ): ?>
-					<option value="<?php echo esc_attr($k); ?>" <?php selected( (string)$day, (string)$k ); ?>>
-						<?php echo esc_html( $label ); ?>
-					</option>
-				<?php endforeach; ?>
-			</select>
-		</div>
+      <hr>
+      <h2>Attività</h2>
+      <table class="widefat" id="wcw-table">
+        <thead><tr>
+          <th>Nome</th><th>Giorno</th><th>Orario</th><th>Categoria</th><th>Azione</th>
+        </tr></thead>
+        <tbody>
+        <?php foreach ($events as $e): ?>
+          <tr data-id="<?php echo intval($e->id); ?>" data-day="<?php echo intval($e->weekday); ?>" data-time="<?php echo esc_attr(substr($e->time,0,5)); ?>" data-cat="<?php echo intval($e->category_id); ?>">
+            <td class="c-name"><?php echo esc_html($e->name); ?></td>
+            <td class="c-day"><?php echo esc_html(self::day_label((int)$e->weekday)); ?></td>
+            <td class="c-time"><?php echo esc_html(substr($e->time,0,5)); ?></td>
+            <td class="c-cat"><?php echo esc_html($e->category_name ?: ''); ?></td>
+            <td>
+              <a href="#" class="wcw-edit">Modifica</a> |
+              <a href="#" class="wcw-delete">Elimina</a>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
 
-		<div class="wpwc-field wpwc-inline">
-			<div>
-				<label for="wpwc_start"><strong><?php esc_html_e( 'Ora inizio (HH:MM)', 'wp-weekly-calendar' ); ?></strong></label><br>
-				<input type="time" id="wpwc_start" name="wpwc_start" value="<?php echo esc_attr( $start ); ?>" pattern="[0-9]{2}:[0-9]{2}">
-			</div>
-			<div>
-				<label for="wpwc_end"><strong><?php esc_html_e( 'Ora fine (HH:MM)', 'wp-weekly-calendar' ); ?></strong></label><br>
-				<input type="time" id="wpwc_end" name="wpwc_end" value="<?php echo esc_attr( $end ); ?>" pattern="[0-9]{2}:[0-9]{2}">
-			</div>
-		</div>
+    <script>
+    (function(){
+      const $ = document.querySelector.bind(document);
+      const $$ = s => Array.from(document.querySelectorAll(s));
+      const nonce = '<?php echo esc_js($nonce); ?>';
 
-		<div class="wpwc-field">
-			<label for="wpwc_attivita"><strong><?php esc_html_e( 'Attività (categoria del calendario)', 'wp-weekly-calendar' ); ?></strong></label><br>
-			<select id="wpwc_attivita" name="wpwc_attivita">
-				<option value=""><?php esc_html_e( '— Seleziona attività —', 'wp-weekly-calendar' ); ?></option>
-				<?php
-				foreach ( $attivita as $id ) {
-					$title = get_the_title( $id );
-					printf(
-						'<option value="%1$d" %2$s>%3$s</option>',
-						(int) $id,
-						selected( (int) $att, (int) $id, false ),
-						esc_html( $title )
-					);
-				}
-				?>
-			</select>
-			<?php if ( $att ): ?>
-				<span class="wpwc-colorchip" style="background:<?php echo esc_attr( get_attivita_color( (int)$att ) ); ?>"></span>
-			<?php endif; ?>
-			<p class="description">
-				<?php esc_html_e( 'Le categorie del calendario sono i post del CPT "attivita". Il colore viene dal campo ACF "colore".', 'wp-weekly-calendar' ); ?>
-			</p>
-		</div>
-		<?php
-	}
+      function dayLabel(d){return {1:'Lunedì',2:'Martedì',3:'Mercoledì',4:'Giovedì',5:'Venerdì',6:'Sabato',7:'Domenica'}[d]||''}
+      function fillFormFromRow(tr){ const f = $('#wcw-event-form'); f.id.value = tr.dataset.id; f.name.value = tr.querySelector('.c-name').textContent.trim(); f.weekday.value = tr.dataset.day; f.time.value = tr.dataset.time; f.category_id.value = tr.dataset.cat || ''; }
 
-	public static function save( $post_id ) {
-		if ( ! isset( $_POST['wpwc_event_nonce'] ) || ! wp_verify_nonce( $_POST['wpwc_event_nonce'], 'wpwc_event_save' ) ) return;
-		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return;
-		if ( ! current_user_can( 'edit_post', $post_id ) ) return;
+      $('#wcw-save').addEventListener('click', async function(){
+        const f = $('#wcw-event-form'); const fd = new FormData(f);
+        fd.append('action','wcw_save_event'); fd.append('nonce',nonce);
+        const res = await fetch(ajaxurl,{method:'POST',body:fd}); const json = await res.json();
+        if(!json.success){ alert(json.data?.message||'Errore'); return; } location.reload();
+      });
 
-		$day   = isset($_POST['wpwc_day']) ? sanitize_text_field( $_POST['wpwc_day'] ) : '';
-		$start = isset($_POST['wpwc_start']) ? sanitize_time_24h( $_POST['wpwc_start'] ) : '';
-		$end   = isset($_POST['wpwc_end']) ? sanitize_time_24h( $_POST['wpwc_end'] ) : '';
-		$att   = isset($_POST['wpwc_attivita']) ? (int) $_POST['wpwc_attivita'] : 0;
+      $$('#wcw-table .wcw-edit').forEach(a=>a.addEventListener('click', function(e){ e.preventDefault(); fillFormFromRow(this.closest('tr')); window.scrollTo({top:0,behavior:'smooth'}); }));
 
-		$day = in_array( $day, array_keys( week_days() ), true ) ? $day : '1';
+      $$('#wcw-table .wcw-delete').forEach(a=>a.addEventListener('click', async function(e){
+        e.preventDefault(); if(!confirm('Eliminare questa attività?')) return;
+        const tr = this.closest('tr'); const fd = new FormData();
+        fd.append('action','wcw_delete_event'); fd.append('nonce',nonce); fd.append('id', tr.dataset.id);
+        const res = await fetch(ajaxurl,{method:'POST',body:fd}); const json = await res.json();
+        if(json.success){ tr.remove(); } else { alert(json.data?.message||'Errore'); }
+      }));
 
-		update_post_meta( $post_id, '_wpwc_day', $day );
-		update_post_meta( $post_id, '_wpwc_start', $start );
-		update_post_meta( $post_id, '_wpwc_end', $end );
-		update_post_meta( $post_id, '_wpwc_attivita', $att );
-	}
+      $('#wcw-add-cat').addEventListener('click', async function(){
+        const inp = document.querySelector('#wcw-cat-form input[name="name"]'); const name = inp.value.trim(); if(!name) return;
+        const fd = new FormData(); fd.append('action','wcw_add_cat'); fd.append('nonce',nonce); fd.append('name',name);
+        const res = await fetch(ajaxurl,{method:'POST',body:fd}); const json = await res.json();
+        if(json.success){ location.reload(); } else { alert(json.data?.message||'Errore'); }
+      });
+
+      $$('#wcw-cat-list .wcw-del-cat').forEach(a=>a.addEventListener('click', async function(e){
+        e.preventDefault(); if(!confirm('Eliminare la categoria?')) return;
+        const li = this.closest('li'); const id = li.dataset.id;
+        const fd = new FormData(); fd.append('action','wcw_delete_cat'); fd.append('nonce',nonce); fd.append('id',id);
+        const res = await fetch(ajaxurl,{method:'POST',body:fd}); const json = await res.json();
+        if(json.success){ li.remove(); } else { alert(json.data?.message||'Errore'); }
+      }));
+    })();
+    </script>
+    <?php
+  }
+
+  private static function day_label($d){ $map = [1=>'Lunedì',2=>'Martedì',3=>'Mercoledì',4=>'Giovedì',5=>'Venerdì',6=>'Sabato',7=>'Domenica']; return $map[$d] ?? ''; }
 }
+endif;
 PHP
 
-# --- includes/class-wpwc-activities.php ---
-cat > "includes/class-wpwc-activities.php" <<'PHP'
+echo "-> Scrive: ${PLUGIN_SLUG}/uninstall.php"
+cat > "${PLUGIN_SLUG}/uninstall.php" <<'PHP'
 <?php
-namespace WPWC;
-
-if ( ! defined( 'ABSPATH' ) ) exit;
-
-class Activities {
-
-	public static function all(): array {
-		$ids = get_posts( [
-			'post_type'   => 'attivita',
-			'post_status' => 'publish',
-			'numberposts' => -1,
-			'orderby'     => 'title',
-			'order'       => 'ASC',
-			'fields'      => 'ids',
-		] );
-
-		$out = [];
-		foreach ( $ids as $id ) {
-			$out[] = self::format( $id );
-		}
-		return $out;
-	}
-
-	public static function format( int $id ): array {
-		return [
-			'id'    => $id,
-			'title' => get_the_title( $id ),
-			'slug'  => basename( get_permalink( $id ) ),
-			'url'   => get_permalink( $id ),
-			'color' => get_attivita_color( $id ),
-		];
-	}
+// Mantiene i dati in tabella. Pulisce solo le opzioni.
+if (defined('WP_UNINSTALL_PLUGIN')) {
+  delete_option('wcw_closure_enabled');
+  delete_option('wcw_closure_start');
+  delete_option('wcw_closure_end');
+  delete_option('wcw_closure_message');
 }
 PHP
 
-# --- includes/class-wpwc-rest.php ---
-cat > "includes/class-wpwc-rest.php" <<'PHP'
-<?php
-namespace WPWC;
+echo "-> Scrive: ${PLUGIN_SLUG}/assets/public.css"
+cat > "${PLUGIN_SLUG}/assets/public.css" <<'CSS'
+/* Griglia: 7 colonne (Lun..Dom). Nessuna colonna orari. */
+.wpwc-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.wpwc-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #e5e7eb;border-radius:999px;background:#fff;text-decoration:none}
+.wpwc-chip.is-active{border-color:#cbd5e1;background:#f8fafc}
+.wpwc-chip .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
 
-if ( ! defined( 'ABSPATH' ) ) exit;
+.wpwc-grid{display:grid;gap:12px}
+.wpwc-head{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:12px}
+.wpwc-day{font-weight:600;padding:6px 0}
+.wpwc-cols{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:12px}
+.wpwc-cell{min-height:20px}
 
-class REST {
-
-	public static function hooks() {
-		add_action( 'rest_api_init', [ __CLASS__, 'routes' ] );
-	}
-
-	public static function routes() {
-		register_rest_route( 'wpwc/v1', '/attivita', [
-			'methods'  => 'GET',
-			'callback' => function() {
-				return rest_ensure_response( Activities::all() );
-			},
-			'permission_callback' => '__return_true',
-		] );
-
-		register_rest_route( 'wpwc/v1', '/events', [
-			'methods'  => 'GET',
-			'args'     => [
-				'day'       => ['validate_callback' => function($v){ return in_array( (string)$v, array_keys( week_days() ), true ); }],
-				'attivita'  => ['validate_callback' => function($v){ return empty($v) || is_numeric($v); }],
-			],
-			'callback' => [ __CLASS__, 'get_events' ],
-			'permission_callback' => '__return_true',
-		] );
-	}
-
-	public static function get_events( \WP_REST_Request $req ) {
-		$day  = $req->get_param( 'day' );
-		$att  = (int) $req->get_param( 'attivita' );
-
-		$meta_query = [];
-		if ( $day ) {
-			$meta_query[] = [ 'key' => '_wpwc_day', 'value' => (string) $day ];
-		}
-		if ( $att ) {
-			$meta_query[] = [ 'key' => '_wpwc_attivita', 'value' => $att, 'compare' => '=' ];
-		}
-
-		$q = new \WP_Query( [
-			'post_type'      => 'wpwc_event',
-			'post_status'    => 'publish',
-			'posts_per_page' => -1,
-			'orderby'        => [ 'meta_value' => 'ASC', 'title' => 'ASC' ],
-			'meta_key'       => '_wpwc_start',
-			'meta_query'     => $meta_query,
-			'no_found_rows'  => true,
-		] );
-
-		$events = [];
-		while ( $q->have_posts() ) {
-			$q->the_post();
-			$id   = get_the_ID();
-			$attv = (int) get_post_meta( $id, '_wpwc_attivita', true );
-			$events[] = [
-				'id'       => $id,
-				'title'    => get_the_title(),
-				'content'  => wp_strip_all_tags( get_the_content() ),
-				'day'      => get_post_meta( $id, '_wpwc_day', true ),
-				'start'    => get_post_meta( $id, '_wpwc_start', true ),
-				'end'      => get_post_meta( $id, '_wpwc_end', true ),
-				'attivita' => $attv ? Activities::format( $attv ) : null,
-				'permalink'=> get_permalink( $id ),
-			];
-		}
-		wp_reset_postdata();
-
-		return rest_ensure_response( $events );
-	}
-}
-PHP
-
-# --- includes/class-wpwc-shortcodes.php ---
-cat > "includes/class-wpwc-shortcodes.php" <<'PHP'
-<?php
-namespace WPWC;
-
-if ( ! defined( 'ABSPATH' ) ) exit;
-
-class Shortcodes {
-	public static function hooks() {
-		add_shortcode( 'weekly_calendar', [ __CLASS__, 'render' ] );
-	}
-	public static function render( $atts = [] ) {
-		wp_enqueue_style( 'wpwc-calendar' );
-		wp_enqueue_script( 'wpwc-calendar' );
-		ob_start();
-		Template_Loader::template( 'calendar.php', [
-			'activities' => Activities::all(),
-			'days'       => week_days(),
-		] );
-		return ob_get_clean();
-	}
-}
-PHP
-
-# --- includes/template-loader.php ---
-cat > "includes/template-loader.php" <<'PHP'
-<?php
-namespace WPWC;
-
-if ( ! defined( 'ABSPATH' ) ) exit;
-
-class Template_Loader {
-	public static function hooks() { /* placeholder per override futuri */ }
-	public static function path( string $template ): string {
-		$default = WPWC_DIR . 'templates/' . ltrim( $template, '/' );
-		return apply_filters( 'wpwc_template_' . basename( $template ), $default );
-	}
-	public static function template( string $template, array $vars = [] ) {
-		$path = self::path( $template );
-		extract( $vars, EXTR_SKIP );
-		include $path;
-	}
-}
-PHP
-
-# --- assets/css/calendar.css ---
-cat > "assets/css/calendar.css" <<'CSS'
-/* Stili base calendario */
-.wpwc-wrap{--gap:10px;--radius:14px;--border:#e2e8f0;--muted:#64748b;--bg:#ffffff}
-.wpwc-wrap{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,'Helvetica Neue',Arial,sans-serif}
-
-.wpwc-toolbar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
-.wpwc-chip{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:999px;padding:6px 10px;text-decoration:none;color:#0f172a;background:#fff;transition:.15s}
-.wpwc-chip:hover{transform:translateY(-1px);box-shadow:0 4px 10px rgba(0,0,0,.06)}
-.wpwc-chip .dot{width:10px;height:10px;border-radius:50%}
-
-.wpwc-grid{display:grid;grid-template-columns:120px repeat(7,1fr);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
-.wpwc-head{display:contents}
-.wpwc-cell{border-bottom:1px solid var(--border);border-right:1px solid var(--border);padding:10px;min-height:72px}
-.wpwc-cell:last-child{border-right:none}
-.wpwc-time{color:var(--muted);font-size:12px}
-.wpwc-day{font-weight:600;text-align:center;background:#f8fafc;padding:12px;border-right:1px solid var(--border)}
-.wpwc-day:last-child{border-right:none}
-.wpwc-event{border-radius:10px;padding:8px 10px;margin:6px 0;background:#eef2ff}
+.wpwc-event{border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:10px;margin-bottom:8px}
 .wpwc-event .title{font-weight:600}
-.wpwc-event .meta{font-size:12px;color:var(--muted)}
-@media (max-width:900px){
-  .wpwc-grid{grid-template-columns:1fr}
-  .wpwc-cell.timecol{display:none}
-  .wpwc-day{border-right:none}
-}
+.wpwc-event .meta{font-size:.9em;opacity:.85;margin-top:2px}
+
+/* Responsive */
+@media (max-width:1024px){.wpwc-head,.wpwc-cols{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (max-width:640px){.wpwc-head,.wpwc-cols{grid-template-columns:repeat(2,minmax(0,1fr))}}
 CSS
 
-# --- assets/js/calendar.js ---
-cat > "assets/js/calendar.js" <<'JS'
-(function(){
-	function setQS(key,val){
-		const u=new URL(window.location); if(val==null||val===''){u.searchParams.delete(key);}else{u.searchParams.set(key,val)}
-		history.replaceState({},'',u);
-	}
-	document.addEventListener('click', function(e){
-		const t = e.target.closest('[data-wpwc-attivita]');
-		if(!t) return;
-		e.preventDefault();
-		const id = t.getAttribute('data-wpwc-attivita');
-		setQS('attivita', id);
-		window.location = window.location.href;
-	});
-})();
-JS
+echo "-> Scrive: ${PLUGIN_SLUG}/assets/admin.css"
+cat > "${PLUGIN_SLUG}/assets/admin.css" <<'CSS'
+.wcw-grid-admin{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
+@media (max-width:1100px){.wcw-grid-admin{grid-template-columns:1fr}}
+.wcw-form label{display:inline-block;min-width:140px}
+ul#wcw-cat-list{margin:6px 0 0 1em;list-style:disc}
+CSS
 
-# --- templates/calendar.php ---
-cat > "templates/calendar.php" <<'PHP'
-<?php
-use WPWC\Activities;
-use function WPWC\get_attivita_color;
-
-$days = $days ?? [ '1'=>'Lunedì','2'=>'Martedì','3'=>'Mercoledì','4'=>'Giovedì','5'=>'Venerdì','6'=>'Sabato','7'=>'Domenica' ];
-$selected_att = isset($_GET['attivita']) ? (int) $_GET['attivita'] : 0;
-
-$meta_query = [];
-if ( $selected_att ) $meta_query[] = [ 'key' => '_wpwc_attivita', 'value' => $selected_att ];
-
-$q = new WP_Query( [
-	'post_type'      => 'wpwc_event',
-	'post_status'    => 'publish',
-	'posts_per_page' => -1,
-	'meta_key'       => '_wpwc_start',
-	'orderby'        => [ 'meta_value' => 'ASC', 'title' => 'ASC' ],
-	'meta_query'     => $meta_query,
-	'no_found_rows'  => true,
-] );
-
-$events_by_day = array_fill_keys( array_keys($days), [] );
-while( $q->have_posts() ): $q->the_post();
-	$id   = get_the_ID();
-	$day  = get_post_meta( $id, '_wpwc_day', true ) ?: '1';
-	$start= get_post_meta( $id, '_wpwc_start', true );
-	$end  = get_post_meta( $id, '_wpwc_end', true );
-	$att  = (int) get_post_meta( $id, '_wpwc_attivita', true );
-	$events_by_day[$day][] = [
-		'id' => $id,
-		'title' => get_the_title(),
-		'content' => wp_strip_all_tags( get_the_content() ),
-		'start' => $start,
-		'end'   => $end,
-		'att'   => $att,
-	];
-endwhile; wp_reset_postdata();
-
-$activities = $activities ?? Activities::all();
-?>
-<div class="wpwc-wrap">
-
-	<div class="wpwc-toolbar">
-		<a class="wpwc-chip" href="<?php echo esc_url( remove_query_arg('attivita') ); ?>">
-			<span class="dot" style="background:#999"></span><?php esc_html_e('Tutte le attività','wp-weekly-calendar'); ?>
-		</a>
-		<?php foreach( $activities as $a ): ?>
-			<?php $url = add_query_arg( 'attivita', (int)$a['id'] ); ?>
-			<a class="wpwc-chip" href="<?php echo esc_url( $url ); ?>" data-wpwc-attivita="<?php echo (int)$a['id']; ?>">
-				<span class="dot" style="background:<?php echo esc_attr($a['color']); ?>"></span>
-				<?php echo esc_html( $a['title'] ); ?>
-			</a>
-		<?php endforeach; ?>
-	</div>
-
-	<div class="wpwc-grid">
-		<div class="wpwc-head">
-			<div class="wpwc-day timecol"><?php esc_html_e('Orari','wp-weekly-calendar'); ?></div>
-			<?php foreach( $days as $dlabel ): ?>
-				<div class="wpwc-day"><?php echo esc_html( $dlabel ); ?></div>
-			<?php endforeach; ?>
-		</div>
-
-		<?php
-		$timecol = '<div class="wpwc-cell timecol"><div class="wpwc-time">08:00</div><div class="wpwc-time">12:00</div><div class="wpwc-time">16:00</div><div class="wpwc-time">20:00</div></div>';
-		$max_rows = 8;
-		for ( $row = 0; $row < $max_rows; $row++ ):
-			echo $timecol;
-			foreach( array_keys($days) as $day_key ):
-				echo '<div class="wpwc-cell">';
-				if ( ! empty( $events_by_day[$day_key] ) ) {
-					foreach ( $events_by_day[$day_key] as $ev ) {
-						$aid = (int) $ev['att'];
-						$color = $aid ? get_attivita_color( $aid ) : '#999';
-						$title = $aid ? get_the_title( $aid ) : '';
-						$att_url = $aid ? get_permalink( $aid ) : '#';
-						printf(
-							'<div class="wpwc-event" style="border-left:6px solid %1$s;background:linear-gradient(0deg,%1$s1A,%1$s1A),#fff">
-								<div class="title">%2$s</div>
-								<div class="meta">%3$s – %4$s • <a href="%5$s">%6$s</a></div>
-							</div>',
-							esc_attr( $color ),
-							esc_html( $ev['title'] ),
-							esc_html( $ev['start'] ?: '--:--' ),
-							esc_html( $ev['end'] ?: '--:--' ),
-							esc_url( $att_url ),
-							esc_html( $title ?: __('Senza attività','wp-weekly-calendar') )
-						);
-					}
-				}
-				echo '</div>';
-			endforeach;
-		endfor;
-		?>
-	</div>
-
-	<div style="margin-top:16px">
-		<h3><?php esc_html_e('Attività (categorie del calendario)','wp-weekly-calendar'); ?></h3>
-		<ul>
-			<?php foreach( $activities as $a ): ?>
-				<li>
-					<span class="dot" style="background:<?php echo esc_attr($a['color']); ?>;width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle"></span>
-					<a href="<?php echo esc_url( $a['url'] ); ?>"><?php echo esc_html( $a['title'] ); ?></a>
-					<small style="color:#64748b">/attivita/<?php echo esc_html( $a['slug'] ); ?></small>
-				</li>
-			<?php endforeach; ?>
-		</ul>
-	</div>
-
-</div>
-PHP
-
-echo "✓ File generati."
-
-echo
-echo "Struttura risultante:"
-find . -maxdepth 3 -mindepth 1 | sed 's#^\./#  #g'
-
-echo
-echo "Fatto! Attiva il plugin dalla Bacheca oppure via WP-CLI:"
-echo "  wp plugin activate wp-weekly-calendar"
+echo "-> Completato."
+echo "Copia '${PLUGIN_SLUG}' in wp-content/plugins, poi attiva il plugin da WP."
 
