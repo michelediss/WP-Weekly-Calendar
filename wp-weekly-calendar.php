@@ -1,9 +1,9 @@
 <?php
 /**
- * Plugin Name: WP Weekly Calendar (DB + Single Admin + Grid AJAX)
- * Description: Attività gestite su tabelle custom, unica pagina admin, frontend a 7 colonne con filtri AJAX.
+ * Plugin Name: WP Weekly Calendar 
+ * Description: Calendario attività settimanale con eventi suddivisi per giorno e orario.
  * Version: 0.5.0
- * Author: Tu
+ * Author: Michele Paolino
  * Text Domain: wcw
  */
 
