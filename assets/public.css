@@ -1,6 +1,12 @@
-.wcw-table { width:100%; border-collapse:collapse }
-.wcw-table th, .wcw-table td { border:1px solid #e5e7eb; padding:8px; vertical-align:top }
-.wcw-event { margin-bottom:6px }
-.wcw-name { display:block; font-weight:600 }
-.wcw-cat { display:block; opacity:.75 }
-.wcw-closure-message { padding:12px; background:#fff8e1; border:1px solid #ffe082 }
+/* Layout a colonne */
+.wcw-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width: 900px){.wcw-grid{grid-template-columns:repeat(2,1fr)}}
+@media (max-width: 600px){.wcw-grid{grid-template-columns:1fr}}
+
+.wcw-day-title{font-weight:600;margin-bottom:8px}
+.wcw-card{border:1px solid #e5e7eb;border-radius:8px;padding:10px;background:#fff;margin-bottom:8px}
+.wcw-card-line{display:flex;gap:10px;align-items:baseline}
+.wcw-card-time{font-weight:700;min-width:3.5ch}
+.wcw-card-title{font-weight:600}
+.wcw-card-cat{font-size:.9em;opacity:.8;margin-top:2px}
+.wcw-empty{padding:12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px}

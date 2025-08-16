@@ -16,91 +16,83 @@ class WCW_Shortcode {
       return WCW_Closures::message_html();
     }
 
-    return self::render_table_html($atts['category']);
+    return self::render_columns_html($atts['category']);
   }
 
-  public static function render_table_html($category_slug = ''){
+  public static function render_columns_html($category_slug = ''){
     $args = [
-      'post_type' => WCW_CPT::POST_TYPE,
-      'post_status' => 'publish',
+      'post_type'      => WCW_CPT::POST_TYPE,
+      'post_status'    => 'publish',
       'posts_per_page' => -1,
-      'meta_key' => WCW_CPT::META_TIME,
-      'orderby' => 'meta_value',
-      'order' => 'ASC',
-      'meta_query' => [
-        [
-          'key' => WCW_CPT::META_WEEKDAY,
-          'compare' => 'EXISTS',
-        ],
-        [
-          'key' => WCW_CPT::META_TIME,
-          'compare' => 'EXISTS',
-        ],
+      'meta_key'       => WCW_CPT::META_TIME,
+      'orderby'        => 'meta_value',
+      'order'          => 'ASC',
+      'meta_query'     => [
+        ['key' => WCW_CPT::META_WEEKDAY, 'compare' => 'EXISTS'],
+        ['key' => WCW_CPT::META_TIME,    'compare' => 'EXISTS'],
       ],
-      'no_found_rows' => true,
+      'no_found_rows'  => true,
     ];
 
     if ($category_slug) {
       $args['tax_query'] = [[
         'taxonomy' => WCW_CPT::TAXONOMY,
-        'field' => 'slug',
-        'terms' => sanitize_title($category_slug),
+        'field'    => 'slug',
+        'terms'    => sanitize_title($category_slug),
       ]];
     }
 
-    $q = new WP_Query($args);
+    $q  = new WP_Query($args);
 
-    // Raccogli orari unici e bucket per giorno
-    $times = [];
+    // Bucket: 1..4 = Lun..Gio
     $by = [1=>[],2=>[],3=>[],4=>[]];
 
     foreach ($q->posts as $p) {
-      $day  = intval(get_post_meta($p->ID, WCW_CPT::META_WEEKDAY, true));
-      $time = get_post_meta($p->ID, WCW_CPT::META_TIME, true);
+      $day  = (int) get_post_meta($p->ID, WCW_CPT::META_WEEKDAY, true);
+      $time =        get_post_meta($p->ID, WCW_CPT::META_TIME,    true);
       if ($day < 1 || $day > 4 || empty($time)) continue;
-      $times[$time] = true;
-      $by[$day][$time][] = $p;
+      $by[$day][] = ['post' => $p, 'time' => $time];
     }
 
-    $times = array_keys($times);
-    sort($times, SORT_STRING);
+    // Ordina ogni giorno per orario
+    foreach ($by as $d => &$events) {
+      usort($events, function($a,$b){ return strcmp($a['time'], $b['time']); });
+    }
+    unset($events);
+
+    // Nessun evento? Messaggio semplice
+    $has_any = false;
+    foreach ($by as $events) { if (!empty($events)) { $has_any = true; break; } }
 
     ob_start();
+    if (!$has_any) {
+      echo '<div class="wcw-empty">Nessun evento</div>';
+      return ob_get_clean();
+    }
     ?>
-    <table class="wcw-table">
-      <thead>
-        <tr>
-          <th>Orario</th>
-          <th>Lunedì</th><th>Martedì</th><th>Mercoledì</th><th>Giovedì</th>
-        </tr>
-      </thead>
-      <tbody>
-      <?php if (empty($times)): ?>
-        <tr><td colspan="5">Nessun evento</td></tr>
-      <?php else: ?>
-        <?php foreach ($times as $t): ?>
-          <tr>
-            <td><?php echo esc_html(substr($t,0,5)); ?></td>
-            <?php for ($d=1; $d<=4; $d++): ?>
-              <td>
-                <?php if (!empty($by[$d][$t])): ?>
-                  <?php foreach ($by[$d][$t] as $post): ?>
-                    <div class="wcw-event">
-                      <span class="wcw-name"><?php echo esc_html(get_the_title($post)); ?></span>
-                      <?php $terms = get_the_terms($post, WCW_CPT::TAXONOMY); ?>
-                      <?php if ($terms && !is_wp_error($terms)): ?>
-                        <small class="wcw-cat"><?php echo esc_html($terms[0]->name); ?></small>
-                      <?php endif; ?>
-                    </div>
-                  <?php endforeach; ?>
-                <?php endif; ?>
-              </td>
-            <?php endfor; ?>
-          </tr>
-        <?php endforeach; ?>
-      <?php endif; ?>
-      </tbody>
-    </table>
+    <div class="wcw-grid">
+      <?php for ($d=1; $d<=4; $d++): ?>
+        <div class="wcw-day">
+          <div class="wcw-day-title"><?php echo esc_html(WCW_CPT::day_label($d)); ?></div>
+          <?php foreach ($by[$d] as $item):
+            /** @var WP_Post $post */
+            $post = $item['post'];
+            $time = $item['time'];
+            $terms = get_the_terms($post, WCW_CPT::TAXONOMY);
+            ?>
+            <div class="wcw-card">
+              <div class="wcw-card-line">
+                <span class="wcw-card-time"><?php echo esc_html(substr($time,0,5)); ?></span>
+                <span class="wcw-card-title"><?php echo esc_html(get_the_title($post)); ?></span>
+              </div>
+              <?php if ($terms && !is_wp_error($terms)): ?>
+                <div class="wcw-card-cat"><?php echo esc_html($terms[0]->name); ?></div>
+              <?php endif; ?>
+            </div>
+          <?php endforeach; ?>
+        </div>
+      <?php endfor; ?>
+    </div>
     <?php
     return ob_get_clean();
   }
