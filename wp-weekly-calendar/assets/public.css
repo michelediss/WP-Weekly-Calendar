@@ -1,0 +1,19 @@
+/* Griglia: 7 colonne (Lun..Dom). Nessuna colonna orari. */
+.wpwc-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.wpwc-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #e5e7eb;border-radius:999px;background:#fff;text-decoration:none}
+.wpwc-chip.is-active{border-color:#cbd5e1;background:#f8fafc}
+.wpwc-chip .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+
+.wpwc-grid{display:grid;gap:12px}
+.wpwc-head{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:12px}
+.wpwc-day{font-weight:600;padding:6px 0}
+.wpwc-cols{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:12px}
+.wpwc-cell{min-height:20px}
+
+.wpwc-event{border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:10px;margin-bottom:8px}
+.wpwc-event .title{font-weight:600}
+.wpwc-event .meta{font-size:.9em;opacity:.85;margin-top:2px}
+
+/* Responsive */
+@media (max-width:1024px){.wpwc-head,.wpwc-cols{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (max-width:640px){.wpwc-head,.wpwc-cols{grid-template-columns:repeat(2,minmax(0,1fr))}}

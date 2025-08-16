@@ -2,30 +2,24 @@
 set -euo pipefail
 
 PLUGIN_SLUG="wp-weekly-calendar"
-VERSION="0.5.0"
+VERSION="0.6.0"
 
-if [[ -d "$PLUGIN_SLUG" ]]; then
-  echo "La cartella '$PLUGIN_SLUG' esiste già. Esco per non sovrascrivere."
-  exit 1
-fi
-
-echo "-> Crea struttura cartelle"
 mkdir -p "${PLUGIN_SLUG}/includes" "${PLUGIN_SLUG}/assets"
 
-echo "-> Scrive: ${PLUGIN_SLUG}/wp-weekly-calendar.php"
+echo "-> write ${PLUGIN_SLUG}/wp-weekly-calendar.php"
 cat > "${PLUGIN_SLUG}/wp-weekly-calendar.php" <<'PHP'
 <?php
 /**
  * Plugin Name: WP Weekly Calendar (DB + Single Admin + Grid AJAX)
- * Description: Attività gestite su tabelle custom, unica pagina admin, frontend a 7 colonne con filtri AJAX.
- * Version: 0.5.0
+ * Description: Attività gestite su tabelle custom, unica pagina admin, frontend a 7 colonne con filtri AJAX. Categorie lette dal CPT "attivita" con fallback su tabella interna.
+ * Version: 0.6.0
  * Author: Tu
  * Text Domain: wcw
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('WCW_VERSION', '0.5.0');
+define('WCW_VERSION', '0.6.0');
 define('WCW_PLUGIN_FILE', __FILE__);
 define('WCW_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WCW_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -48,7 +42,7 @@ add_action('admin_enqueue_scripts', function($hook){
 });
 PHP
 
-echo "-> Scrive: ${PLUGIN_SLUG}/includes/class-wcw-db.php"
+echo "-> write ${PLUGIN_SLUG}/includes/class-wcw-db.php"
 cat > "${PLUGIN_SLUG}/includes/class-wcw-db.php" <<'PHP'
 <?php
 if (!class_exists('WCW_DB')):
@@ -56,12 +50,18 @@ class WCW_DB {
   public static function table_events(){ global $wpdb; return $wpdb->prefix.'wcw_events'; }
   public static function table_cats(){ global $wpdb; return $wpdb->prefix.'wcw_categories'; }
 
+  // Usa il CPT 'attivita' se esiste
+  public static function use_cpt_categories(){
+    return function_exists('post_type_exists') && post_type_exists('attivita');
+  }
+
   public static function create_tables(){
     global $wpdb; $charset = $wpdb->get_charset_collate();
     $t_events = self::table_events();
     $t_cats   = self::table_cats();
     require_once ABSPATH.'wp-admin/includes/upgrade.php';
 
+    // tabella categorie (fallback solo se non esiste CPT attivita)
     $sql_cats = "CREATE TABLE $t_cats (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       name VARCHAR(80) NOT NULL,
@@ -74,7 +74,7 @@ class WCW_DB {
       name VARCHAR(120) NOT NULL,
       weekday TINYINT UNSIGNED NOT NULL,
       time TIME NOT NULL,
-      category_id BIGINT UNSIGNED NULL,
+      category_id BIGINT UNSIGNED NULL, -- ID del post CPT 'attivita' o id interno fallback
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       KEY idx_day_time (weekday, time),
@@ -85,11 +85,28 @@ class WCW_DB {
     dbDelta($sql_events);
   }
 
-  // Categorie
+  // ------------------ CATEGORIE ------------------
+  // Ritorna oggetti con ->id, ->name, ->slug
   public static function get_categories(){
-    global $wpdb; return $wpdb->get_results("SELECT * FROM ".self::table_cats()." ORDER BY name ASC");
+    global $wpdb;
+    if (self::use_cpt_categories()) {
+      $p = $wpdb->posts;
+      $sql = $wpdb->prepare(
+        "SELECT ID AS id, post_title AS name, post_name AS slug
+         FROM $p
+         WHERE post_type=%s AND post_status='publish'
+         ORDER BY post_title ASC",
+        'attivita'
+      );
+      return $wpdb->get_results($sql);
+    } else {
+      return $wpdb->get_results("SELECT id, name, slug FROM ".self::table_cats()." ORDER BY name ASC");
+    }
   }
+
+  // Fallback legacy per chi non ha CPT (UI nascosta quando si usa CPT)
   public static function upsert_category($name){
+    if (self::use_cpt_categories()) return false;
     global $wpdb; $name = trim($name); if ($name==='') return false;
     $slug = sanitize_title($name);
     $t = self::table_cats();
@@ -99,32 +116,58 @@ class WCW_DB {
     return (int)$wpdb->insert_id;
   }
   public static function delete_category($id){
+    if (self::use_cpt_categories()) return false;
     global $wpdb; $id = (int)$id; if(!$id) return false;
     $wpdb->update(self::table_events(), ['category_id'=>null], ['category_id'=>$id]);
     return (bool)$wpdb->delete(self::table_cats(), ['id'=>$id]);
   }
 
-  // Eventi
+  // ------------------ EVENTI ------------------
+  // Se $category_slug pieno, filtra per post_name del CPT (se presente) o per slug tabella fallback
   public static function get_events($category_slug = ''){
     global $wpdb; $t_e = self::table_events(); $t_c = self::table_cats();
-    if ($category_slug) {
-      $sql = $wpdb->prepare(
-        "SELECT e.*, c.name AS category_name, c.slug AS category_slug
-         FROM $t_e e LEFT JOIN $t_c c ON c.id=e.category_id
-         WHERE c.slug=%s
-         ORDER BY e.time ASC, e.weekday ASC, e.name ASC",
-         sanitize_title($category_slug)
-      );
+    if (self::use_cpt_categories()) {
+      $p = $wpdb->posts;
+      if ($category_slug) {
+        $sql = $wpdb->prepare(
+          "SELECT e.*, p.post_title AS category_name, p.post_name AS category_slug
+             FROM $t_e e
+             LEFT JOIN $p p ON p.ID = e.category_id AND p.post_status='publish' AND p.post_type=%s
+            WHERE p.post_name = %s
+            ORDER BY e.time ASC, e.weekday ASC, e.name ASC",
+          'attivita',
+          sanitize_title($category_slug)
+        );
+      } else {
+        $sql =
+          "SELECT e.*, p.post_title AS category_name, p.post_name AS category_slug
+             FROM $t_e e
+             LEFT JOIN $p p ON p.ID = e.category_id AND p.post_status='publish' AND p.post_type='attivita'
+            ORDER BY e.time ASC, e.weekday ASC, e.name ASC";
+      }
+      return $wpdb->get_results($sql);
     } else {
-      $sql = "SELECT e.*, c.name AS category_name, c.slug AS category_slug
-              FROM $t_e e LEFT JOIN $t_c c ON c.id=e.category_id
-              ORDER BY e.time ASC, e.weekday ASC, e.name ASC";
+      if ($category_slug) {
+        $sql = $wpdb->prepare(
+          "SELECT e.*, c.name AS category_name, c.slug AS category_slug
+             FROM $t_e e LEFT JOIN $t_c c ON c.id=e.category_id
+            WHERE c.slug=%s
+            ORDER BY e.time ASC, e.weekday ASC, e.name ASC",
+          sanitize_title($category_slug)
+        );
+      } else {
+        $sql =
+          "SELECT e.*, c.name AS category_name, c.slug AS category_slug
+             FROM $t_e e LEFT JOIN $t_c c ON c.id=e.category_id
+            ORDER BY e.time ASC, e.weekday ASC, e.name ASC";
+      }
+      return $wpdb->get_results($sql);
     }
-    return $wpdb->get_results($sql);
   }
 
   public static function insert_event($name,$weekday,$time,$category_id){
-    global $wpdb; $weekday=(int)$weekday; $category_id = $category_id? (int)$category_id : null;
+    global $wpdb; $weekday=(int)$weekday;
+    $category_id = $category_id? (int)$category_id : null; // per CPT è l'ID del post
     return (bool)$wpdb->insert(self::table_events(), [
       'name'=>sanitize_text_field($name),
       'weekday'=>max(1,min(7,$weekday)),
@@ -150,7 +193,7 @@ class WCW_DB {
 endif;
 PHP
 
-echo "-> Scrive: ${PLUGIN_SLUG}/includes/class-wcw-closures.php"
+echo "-> write ${PLUGIN_SLUG}/includes/class-wcw-closures.php"
 cat > "${PLUGIN_SLUG}/includes/class-wcw-closures.php" <<'PHP'
 <?php
 if (!class_exists('WCW_Closures')):
@@ -182,7 +225,7 @@ class WCW_Closures {
 endif;
 PHP
 
-echo "-> Scrive: ${PLUGIN_SLUG}/includes/class-wcw-shortcode.php"
+echo "-> write ${PLUGIN_SLUG}/includes/class-wcw-shortcode.php"
 cat > "${PLUGIN_SLUG}/includes/class-wcw-shortcode.php" <<'PHP'
 <?php
 if (!class_exists('WCW_Shortcode')):
@@ -190,6 +233,7 @@ class WCW_Shortcode {
 
   public static function init(){
     add_shortcode('wcw_schedule', [__CLASS__, 'render']);
+    add_shortcode('weekly_calendar', [__CLASS__, 'render']); // alias
     add_action('wp_ajax_wpwcf_filter', [__CLASS__, 'ajax_filter']);
     add_action('wp_ajax_nopriv_wpwcf_filter', [__CLASS__, 'ajax_filter']);
   }
@@ -232,27 +276,10 @@ class WCW_Shortcode {
       const ajaxUrl = "<?php echo esc_url(admin_url('admin-ajax.php')); ?>";
 
       function setActive(el){ chips.forEach(c => c.classList.remove('is-active')); el.classList.add('is-active'); }
-      function updateURL(slug){
-        const url = new URL(window.location);
-        if (slug) url.searchParams.set('attivita', slug);
-        else url.searchParams.delete('attivita');
-        window.history.replaceState({}, '', url);
-      }
-      async function fetchGrid(slug){
-        const fd = new FormData();
-        fd.append('action','wpwcf_filter');
-        fd.append('category', slug);
-        const res = await fetch(ajaxUrl, { method:'POST', body: fd, credentials:'same-origin' });
-        if (!res.ok) return;
-        grid.innerHTML = await res.text();
-      }
-      chips.forEach(ch => ch.addEventListener('click', function(e){
-        e.preventDefault();
-        const slug = this.getAttribute('data-wpwc-cat') || '';
-        setActive(this);
-        updateURL(slug);
-        fetchGrid(slug);
-      }));
+      function updateURL(slug){ const url = new URL(window.location); if (slug) url.searchParams.set('attivita', slug); else url.searchParams.delete('attivita'); window.history.replaceState({}, '', url); }
+      async function fetchGrid(slug){ const fd = new FormData(); fd.append('action','wpwcf_filter'); fd.append('category', slug); const res = await fetch(ajaxUrl, { method:'POST', body: fd, credentials:'same-origin' }); if (!res.ok) return; grid.innerHTML = await res.text(); }
+
+      chips.forEach(ch => ch.addEventListener('click', function(e){ e.preventDefault(); const slug = this.getAttribute('data-wpwc-cat') || ''; setActive(this); updateURL(slug); fetchGrid(slug); }));
     })();
     </script>
     <?php
@@ -260,6 +287,7 @@ class WCW_Shortcode {
   }
 
   private static function render_grid_html($category_slug = ''){
+    // Bucket per giorni 1..7
     $by = [1=>[],2=>[],3=>[],4=>[],5=>[],6=>[],7=>[]];
     $rows = WCW_DB::get_events($category_slug);
 
@@ -310,7 +338,7 @@ class WCW_Shortcode {
 endif;
 PHP
 
-echo "-> Scrive: ${PLUGIN_SLUG}/includes/class-wcw-admin-page.php"
+echo "-> write ${PLUGIN_SLUG}/includes/class-wcw-admin-page.php"
 cat > "${PLUGIN_SLUG}/includes/class-wcw-admin-page.php" <<'PHP'
 <?php
 if (!class_exists('WCW_Admin_Page')):
@@ -319,8 +347,7 @@ class WCW_Admin_Page {
     add_action('admin_menu', [__CLASS__, 'menu']);
     add_action('wp_ajax_wcw_save_event',   [__CLASS__, 'ajax_save_event']);
     add_action('wp_ajax_wcw_delete_event', [__CLASS__, 'ajax_delete_event']);
-    add_action('wp_ajax_wcw_add_cat',      [__CLASS__, 'ajax_add_cat']);
-    add_action('wp_ajax_wcw_delete_cat',   [__CLASS__, 'ajax_delete_cat']);
+    // niente add/delete category quando si usa CPT
     add_action('admin_post_wcw_save_closure', [__CLASS__, 'save_closure']);
   }
 
@@ -336,14 +363,18 @@ class WCW_Admin_Page {
     $name = sanitize_text_field($_POST['name'] ?? '');
     $day  = max(1,min(7,intval($_POST['weekday'] ?? 1)));
     $time = preg_replace('/[^0-9:]/','', $_POST['time'] ?? '');
-    $cat  = intval($_POST['category_id'] ?? 0) ?: null;
+    $cat  = intval($_POST['category_id'] ?? 0) ?: null; // ID post CPT o id fallback
     if ($name==='' || $time==='') wp_send_json_error(['message'=>'Dati mancanti'], 400);
     $ok = $id ? WCW_DB::update_event($id,$name,$day,$time,$cat) : WCW_DB::insert_event($name,$day,$time,$cat);
     $ok ? wp_send_json_success() : wp_send_json_error(['message'=>'Errore DB'], 500);
   }
-  public static function ajax_delete_event(){ self::check_caps_and_nonce(); $id=intval($_POST['id']??0); if(!$id) wp_send_json_error(); $ok=WCW_DB::delete_event($id); $ok? wp_send_json_success(): wp_send_json_error(['message'=>'Errore DB'],500);}
-  public static function ajax_add_cat(){ self::check_caps_and_nonce(); $name=sanitize_text_field($_POST['name']??''); $id=WCW_DB::upsert_category($name); if($id) wp_send_json_success(['id'=>$id]); else wp_send_json_error(['message'=>'Errore categoria'],400);}
-  public static function ajax_delete_cat(){ self::check_caps_and_nonce(); $id=intval($_POST['id']??0); $ok=WCW_DB::delete_category($id); $ok? wp_send_json_success(): wp_send_json_error(['message'=>'Errore DB'],500);}
+
+  public static function ajax_delete_event(){
+    self::check_caps_and_nonce(); $id=intval($_POST['id']??0);
+    if(!$id) wp_send_json_error();
+    $ok=WCW_DB::delete_event($id);
+    $ok? wp_send_json_success(): wp_send_json_error(['message'=>'Errore DB'],500);
+  }
 
   public static function save_closure(){
     if (!current_user_can('manage_options')) wp_die('forbidden');
@@ -358,6 +389,7 @@ class WCW_Admin_Page {
 
   public static function render_page(){
     if (!current_user_can('manage_options')) return;
+    $uses_cpt = WCW_DB::use_cpt_categories();
     $cats = WCW_DB::get_categories();
     $events = WCW_DB::get_events('');
     $enabled = (bool) get_option('wcw_closure_enabled', 0);
@@ -400,16 +432,22 @@ class WCW_Admin_Page {
             </p>
           </form>
 
-          <h3>Categorie</h3>
-          <form id="wcw-cat-form" onsubmit="return false;">
-            <input type="text" name="name" placeholder="Nome categoria">
-            <button class="button" id="wcw-add-cat">Aggiungi</button>
-          </form>
-          <ul id="wcw-cat-list">
-            <?php foreach ($cats as $c): ?>
-              <li data-id="<?php echo intval($c->id); ?>"><?php echo esc_html($c->name); ?> <a href="#" class="wcw-del-cat">Elimina</a></li>
-            <?php endforeach; ?>
-          </ul>
+          <?php if ($uses_cpt): ?>
+            <div class="notice-inline">
+              <p><strong>Categorie</strong> lette dal CPT <code>attivita</code>. Gestiscile in <a href="<?php echo esc_url(admin_url('edit.php?post_type=attivita')); ?>">Attività</a>.</p>
+            </div>
+          <?php else: ?>
+            <h3>Categorie (fallback interno)</h3>
+            <form id="wcw-cat-form" onsubmit="return false;">
+              <input type="text" name="name" placeholder="Nome categoria">
+              <button class="button" id="wcw-add-cat">Aggiungi</button>
+            </form>
+            <ul id="wcw-cat-list">
+              <?php foreach ($cats as $c): ?>
+                <li data-id="<?php echo intval($c->id); ?>"><?php echo esc_html($c->name); ?></li>
+              <?php endforeach; ?>
+            </ul>
+          <?php endif; ?>
         </div>
 
         <div>
@@ -458,7 +496,8 @@ class WCW_Admin_Page {
       function dayLabel(d){return {1:'Lunedì',2:'Martedì',3:'Mercoledì',4:'Giovedì',5:'Venerdì',6:'Sabato',7:'Domenica'}[d]||''}
       function fillFormFromRow(tr){ const f = $('#wcw-event-form'); f.id.value = tr.dataset.id; f.name.value = tr.querySelector('.c-name').textContent.trim(); f.weekday.value = tr.dataset.day; f.time.value = tr.dataset.time; f.category_id.value = tr.dataset.cat || ''; }
 
-      $('#wcw-save').addEventListener('click', async function(){
+      const saveBtn = document.getElementById('wcw-save');
+      if (saveBtn) saveBtn.addEventListener('click', async function(){
         const f = $('#wcw-event-form'); const fd = new FormData(f);
         fd.append('action','wcw_save_event'); fd.append('nonce',nonce);
         const res = await fetch(ajaxurl,{method:'POST',body:fd}); const json = await res.json();
@@ -474,21 +513,6 @@ class WCW_Admin_Page {
         const res = await fetch(ajaxurl,{method:'POST',body:fd}); const json = await res.json();
         if(json.success){ tr.remove(); } else { alert(json.data?.message||'Errore'); }
       }));
-
-      $('#wcw-add-cat').addEventListener('click', async function(){
-        const inp = document.querySelector('#wcw-cat-form input[name="name"]'); const name = inp.value.trim(); if(!name) return;
-        const fd = new FormData(); fd.append('action','wcw_add_cat'); fd.append('nonce',nonce); fd.append('name',name);
-        const res = await fetch(ajaxurl,{method:'POST',body:fd}); const json = await res.json();
-        if(json.success){ location.reload(); } else { alert(json.data?.message||'Errore'); }
-      });
-
-      $$('#wcw-cat-list .wcw-del-cat').forEach(a=>a.addEventListener('click', async function(e){
-        e.preventDefault(); if(!confirm('Eliminare la categoria?')) return;
-        const li = this.closest('li'); const id = li.dataset.id;
-        const fd = new FormData(); fd.append('action','wcw_delete_cat'); fd.append('nonce',nonce); fd.append('id',id);
-        const res = await fetch(ajaxurl,{method:'POST',body:fd}); const json = await res.json();
-        if(json.success){ li.remove(); } else { alert(json.data?.message||'Errore'); }
-      }));
     })();
     </script>
     <?php
@@ -499,10 +523,10 @@ class WCW_Admin_Page {
 endif;
 PHP
 
-echo "-> Scrive: ${PLUGIN_SLUG}/uninstall.php"
+echo "-> write ${PLUGIN_SLUG}/uninstall.php"
 cat > "${PLUGIN_SLUG}/uninstall.php" <<'PHP'
 <?php
-// Mantiene i dati in tabella. Pulisce solo le opzioni.
+// Mantiene i dati. Pulisce solo le opzioni.
 if (defined('WP_UNINSTALL_PLUGIN')) {
   delete_option('wcw_closure_enabled');
   delete_option('wcw_closure_start');
@@ -511,7 +535,7 @@ if (defined('WP_UNINSTALL_PLUGIN')) {
 }
 PHP
 
-echo "-> Scrive: ${PLUGIN_SLUG}/assets/public.css"
+echo "-> write ${PLUGIN_SLUG}/assets/public.css"
 cat > "${PLUGIN_SLUG}/assets/public.css" <<'CSS'
 /* Griglia: 7 colonne (Lun..Dom). Nessuna colonna orari. */
 .wpwc-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
@@ -534,7 +558,7 @@ cat > "${PLUGIN_SLUG}/assets/public.css" <<'CSS'
 @media (max-width:640px){.wpwc-head,.wpwc-cols{grid-template-columns:repeat(2,minmax(0,1fr))}}
 CSS
 
-echo "-> Scrive: ${PLUGIN_SLUG}/assets/admin.css"
+echo "-> write ${PLUGIN_SLUG}/assets/admin.css"
 cat > "${PLUGIN_SLUG}/assets/admin.css" <<'CSS'
 .wcw-grid-admin{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
 @media (max-width:1100px){.wcw-grid-admin{grid-template-columns:1fr}}
@@ -542,6 +566,5 @@ cat > "${PLUGIN_SLUG}/assets/admin.css" <<'CSS'
 ul#wcw-cat-list{margin:6px 0 0 1em;list-style:disc}
 CSS
 
-echo "-> Completato."
-echo "Copia '${PLUGIN_SLUG}' in wp-content/plugins, poi attiva il plugin da WP."
+echo "Done. Plugin in '${PLUGIN_SLUG}' (v${VERSION}). Attiva da WP."
 
