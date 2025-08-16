@@ -1,58 +1,31 @@
 <?php
 /**
- * Plugin Name: WP Weekly Calendar (CPT + Tassonomia)
- * Description: Calendario settimanale lunedì–giovedì con eventi filtrabili via tassonomia personalizzata e shortcode.
- * Version: 0.2.0
- * Author: Tu
- * Text Domain: wcw
+ * Plugin Name:       WP Weekly Calendar (Attività = Categorie)
+ * Description:       Calendario settimanale i cui "filtri categoria" derivano 1:1 dal CPT 'attivita'. Ogni attività è una categoria con colore ACF e link /attivita/slug.
+ * Version:           2.0.0
+ * Author:            WP Weekly Calendar Team
+ * Text Domain:       wp-weekly-calendar
  */
 
-if (!defined('ABSPATH')) exit;
+if ( ! defined( 'ABSPATH' ) ) exit;
 
-// -------------------------------------------------
-// Autoload minimale
-// -------------------------------------------------
-require_once __DIR__ . '/includes/class-wcw-cpt.php';
-require_once __DIR__ . '/includes/class-wcw-closures.php';
-require_once __DIR__ . '/includes/class-wcw-shortcode.php';
-require_once __DIR__ . '/includes/class-wcw-admin-page.php';
-require_once __DIR__ . '/includes/class-wcw-migration.php';
+define( 'WPWC_FILE', __FILE__ );
+define( 'WPWC_DIR', plugin_dir_path( __FILE__ ) );
+define( 'WPWC_URL', plugin_dir_url( __FILE__ ) );
+define( 'WPWC_VER', '2.0.0' );
 
-// -------------------------------------------------
-// Bootstrap
-// -------------------------------------------------
-add_action('init', function(){
-  WCW_CPT::register();
+require_once WPWC_DIR . 'includes/helpers.php';
+require_once WPWC_DIR . 'includes/class-wpwc-plugin.php';
+
+register_activation_hook( __FILE__, function() {
+	\WPWC\Plugin::instance()->activate();
 });
 
-add_action('plugins_loaded', function(){
-  // Shortcode e assets pubblici
-  WCW_Shortcode::init();
-  // Admin
-  if (is_admin()) {
-    WCW_Admin_Page::init();
-    WCW_Migration::maybe_admin_notice();
-  }
+register_deactivation_hook( __FILE__, function() {
+	\WPWC\Plugin::instance()->deactivate();
 });
 
-register_activation_hook(__FILE__, function(){
-  WCW_CPT::register();
-  flush_rewrite_rules();
-});
-
-register_deactivation_hook(__FILE__, function(){
-  flush_rewrite_rules();
-});
-
-// -------------------------------------------------
-// Assets
-// -------------------------------------------------
-add_action('wp_enqueue_scripts', function(){
-  wp_enqueue_style('wcw-public', plugins_url('assets/public.css', __FILE__), [], '0.2.0');
-});
-
-add_action('admin_enqueue_scripts', function($hook){
-  if ($hook === 'toplevel_page_wcw-calendar') {
-    wp_enqueue_style('wcw-admin', plugins_url('assets/admin.css', __FILE__), [], '0.2.0');
-  }
-});
+add_action( 'plugins_loaded', function() {
+	load_plugin_textdomain( 'wp-weekly-calendar', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
+	\WPWC\Plugin::instance()->boot();
+} );
