@@ -30,7 +30,7 @@ class WCW_Shortcode {
     $show_filters = in_array(strtolower((string)$atts['filters']), ['1','true','yes','on'], true);
 
     // Dati
-    $cats = WCW_DB::get_categories();
+    $cats = WCW_DB::get_filter_categories(); 
     $collapse_id = 'wpwcFilters_' . wp_generate_uuid4();
 
     // Enqueue Bootstrap 5.3 per la collapse (solo qui)
