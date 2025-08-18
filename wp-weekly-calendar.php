@@ -2,14 +2,14 @@
 /**
  * Plugin Name: WP Weekly Calendar
  * Description: Calendario settimanale per le attività dell'ex-OPG "Je so' pazzo".
- * Version: 1.1.0
+ * Version: 1.1.1
  * Author: Michele Paolino
  * Author URI: https://michelepaolino.com
  * Text Domain: wcw
  */
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'WCW_VERSION', '1.1.0' );
+define( 'WCW_VERSION', '1.1.1' );
 define( 'WCW_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WCW_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -23,7 +23,6 @@ register_activation_hook( __FILE__, function () {
 } );
 
 add_action( 'plugins_loaded', function () {
-  // Migrazione automatica: aggiunge le nuove colonne se non presenti
   if ( class_exists( 'WCW_DB' ) && method_exists( 'WCW_DB', 'maybe_update_schema' ) ) {
     WCW_DB::maybe_update_schema();
   }
@@ -32,13 +31,13 @@ add_action( 'plugins_loaded', function () {
 } );
 
 add_action( 'wp_enqueue_scripts', function () {
-  // Assicurati che i file CSS siano in assets/public.css
+  // In repo: assets/public.css
   wp_enqueue_style( 'wcw-public', WCW_PLUGIN_URL . 'assets/public.css', [], WCW_VERSION );
 } );
 
 add_action( 'admin_enqueue_scripts', function ( $hook ) {
   if ( $hook === 'toplevel_page_wcw-calendar' ) {
-    // Assicurati che i file CSS siano in assets/admin.css
+    // In repo: assets/admin.css
     wp_enqueue_style( 'wcw-admin', WCW_PLUGIN_URL . 'assets/admin.css', [], WCW_VERSION );
   }
 } );

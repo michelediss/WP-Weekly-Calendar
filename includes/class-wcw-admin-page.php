@@ -4,10 +4,8 @@ class WCW_Admin_Page {
 
   public static function init() {
     add_action( 'admin_menu', [ __CLASS__, 'menu' ] );
-    // AJAX CRUD eventi (solo admin)
     add_action( 'wp_ajax_wcw_save_event',   [ __CLASS__, 'ajax_save_event' ] );
     add_action( 'wp_ajax_wcw_delete_event', [ __CLASS__, 'ajax_delete_event' ] );
-    // Salvataggio impostazioni (chiusure ecc.)
     add_action( 'admin_post_wcw_save_closure', [ __CLASS__, 'save_closure' ] );
   }
 
@@ -31,12 +29,20 @@ class WCW_Admin_Page {
     $categories = WCW_DB::get_categories_all();
     $nonce      = wp_create_nonce( 'wcw_admin' );
 
+    // Dati chiusura
+    $cl_enabled = (int) get_option( 'wcw_closure_enabled', 0 );
+    $cl_start   = get_option( 'wcw_closure_start', '' );
+    $cl_end     = get_option( 'wcw_closure_end',   '' );
+    $cl_msg     = get_option( 'wcw_closure_message', '' );
+
     ?>
     <div class="wrap">
       <h1 class="wp-heading-inline"><?php esc_html_e( 'Calendario settimanale', 'wcw' ); ?></h1>
       <hr class="wp-header-end" />
 
       <div id="wcw-admin-root" class="wcw-admin-grid">
+
+        <!-- Card: form evento -->
         <div class="wcw-card">
           <h2><?php esc_html_e( 'Nuova / Modifica attività', 'wcw' ); ?></h2>
           <form id="wcw-form">
@@ -102,6 +108,7 @@ class WCW_Admin_Page {
           </form>
         </div>
 
+        <!-- Card: elenco eventi -->
         <div class="wcw-card">
           <h2><?php esc_html_e( 'Eventi', 'wcw' ); ?></h2>
           <table class="widefat fixed striped">
@@ -145,15 +152,60 @@ class WCW_Admin_Page {
             </tbody>
           </table>
         </div>
-      </div>
-    </div>
+
+        <!-- Card: chiusura attività -->
+        <div class="wcw-card">
+          <h2><?php esc_html_e( 'Chiusura attività', 'wcw' ); ?></h2>
+          <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <input type="hidden" name="action" value="wcw_save_closure" />
+            <?php wp_nonce_field( 'wcw_admin' ); ?>
+
+            <p>
+              <label>
+                <input type="checkbox" name="wcw_closure_enabled" value="1" <?php checked( $cl_enabled, 1 ); ?> />
+                <?php esc_html_e( 'Abilita chiusura', 'wcw' ); ?>
+              </label>
+            </p>
+
+            <div class="wcw-closure-grid">
+              <p>
+                <label><?php esc_html_e( 'Data inizio', 'wcw' ); ?><br/>
+                  <input type="date" name="wcw_closure_start" value="<?php echo esc_attr( $cl_start ); ?>" />
+                </label>
+              </p>
+              <p>
+                <label><?php esc_html_e( 'Data fine', 'wcw' ); ?><br/>
+                  <input type="date" name="wcw_closure_end" value="<?php echo esc_attr( $cl_end ); ?>" />
+                </label>
+              </p>
+            </div>
+
+            <p>
+              <label><?php esc_html_e( 'Messaggio', 'wcw' ); ?><br/>
+                <textarea name="wcw_closure_message" rows="4" class="large-text" placeholder="<?php esc_attr_e( 'Testo del messaggio da mostrare sul sito…', 'wcw' ); ?>"><?php echo esc_textarea( $cl_msg ); ?></textarea>
+              </label>
+            </p>
+
+            <p>
+              <button type="submit" class="button button-primary"><?php esc_html_e( 'Salva impostazioni', 'wcw' ); ?></button>
+            </p>
+
+            <?php if ( class_exists( 'WCW_Closures' ) && WCW_Closures::is_closed_now() ) : ?>
+              <div class="notice notice-warning" style="margin-top:12px;">
+                <p><strong><?php esc_html_e( 'Attenzione:', 'wcw' ); ?></strong> <?php esc_html_e( 'il calendario risulta attualmente CHIUSO.', 'wcw' ); ?></p>
+              </div>
+            <?php endif; ?>
+          </form>
+        </div>
+
+      </div><!-- /.wcw-admin-grid -->
+    </div><!-- /.wrap -->
 
     <script>
     (function(){
       const $ = (s, c=document) => c.querySelector(s);
-      const $$ = (s, c=document) => Array.from(c.querySelectorAll(s));
-      const form = $('#wcw-form');
-      const tbody = $('#wcw-events-tbody');
+      const tbody = document.getElementById('wcw-events-tbody');
+      const form = document.getElementById('wcw-form');
 
       const reset = () => {
         form.id.value = '';
@@ -164,25 +216,25 @@ class WCW_Admin_Page {
         form.time_end.value = '';
         form.category_id.value = '';
       };
-      $('#wcw-reset').addEventListener('click', reset);
+      document.getElementById('wcw-reset').addEventListener('click', reset);
 
-      // Riempie il form dai dati della riga
       tbody.addEventListener('click', function(e){
         const t = e.target.closest('a');
         if (!t) return;
-
         const tr = e.target.closest('tr');
+
         if (t.classList.contains('wcw-edit')) {
           e.preventDefault();
-          form.id.value = tr.dataset.id || '';
-          form.name.value = (tr.querySelector('.c-name')?.textContent || '').trim();
-          form.subtitle.value = (tr.querySelector('.c-subtitle')?.textContent || '').trim();
-          form.weekday.value = tr.dataset.day || '1';
-          form.time.value = tr.dataset.time || '';
-          form.time_end.value = tr.dataset.time_end || '';
+          form.id.value        = tr.dataset.id || '';
+          form.name.value      = (tr.querySelector('.c-name')?.textContent || '').trim();
+          form.subtitle.value  = (tr.querySelector('.c-subtitle')?.textContent || '').trim();
+          form.weekday.value   = tr.dataset.day || '1';
+          form.time.value      = tr.dataset.time || '';
+          form.time_end.value  = tr.dataset.time_end || '';
           form.category_id.value = tr.dataset.cat || '';
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }
+
         if (t.classList.contains('wcw-del')) {
           e.preventDefault();
           if (!confirm('Eliminare questo evento?')) return;
@@ -192,24 +244,17 @@ class WCW_Admin_Page {
           fd.append('id', tr.dataset.id || '');
           fetch(ajaxurl, { method:'POST', body: fd })
             .then(r => r.json())
-            .then(json => {
-              if (json.success) tr.remove();
-              else alert(json.data?.message || 'Errore');
-            })
+            .then(json => { if (json.success) tr.remove(); else alert(json.data?.message || 'Errore'); })
             .catch(() => alert('Errore di rete'));
         }
       });
 
-      // Salva
       form.addEventListener('submit', function(e){
         e.preventDefault();
         const fd = new FormData(form);
         fetch(ajaxurl, { method:'POST', body: fd })
           .then(r => r.json())
-          .then(json => {
-            if (json.success) location.reload();
-            else alert(json.data?.message || 'Errore');
-          })
+          .then(json => { if (json.success) location.reload(); else alert(json.data?.message || 'Errore'); })
           .catch(() => alert('Errore di rete'));
       });
     })();
@@ -232,9 +277,7 @@ class WCW_Admin_Page {
     if ( $name === '' || $time === '' || $day < 1 || $day > 7 ) {
       wp_send_json_error( [ 'message' => 'Dati mancanti o non validi' ], 400 );
     }
-
-    // opzionale: impedisci fine < inizio
-    if ( $time_end && strcmp($time_end, $time) < 0 ) {
+    if ( $time_end && strcmp( $time_end, $time ) < 0 ) {
       wp_send_json_error( [ 'message' => 'L\'orario di fine non può precedere quello di inizio' ], 400 );
     }
 
@@ -254,14 +297,16 @@ class WCW_Admin_Page {
     $ok ? wp_send_json_success() : wp_send_json_error( [ 'message' => 'Errore DB' ], 500 );
   }
 
-  /** Salvataggio impostazioni di chiusura (se presenti nel form) */
+  /** Salvataggio impostazioni di chiusura */
   public static function save_closure() {
     if ( ! current_user_can( 'manage_options' ) ) wp_die();
     check_admin_referer( 'wcw_admin' );
+
     update_option( 'wcw_closure_enabled', isset( $_POST['wcw_closure_enabled'] ) ? 1 : 0 );
     update_option( 'wcw_closure_start', sanitize_text_field( $_POST['wcw_closure_start'] ?? '' ) );
     update_option( 'wcw_closure_end',   sanitize_text_field( $_POST['wcw_closure_end']   ?? '' ) );
-    update_option( 'wcw_closure_message', sanitize_text_field( $_POST['wcw_closure_message'] ?? '' ) );
+    update_option( 'wcw_closure_message', wp_kses_post( $_POST['wcw_closure_message'] ?? '' ) );
+
     wp_safe_redirect( admin_url( 'admin.php?page=wcw-calendar&updated=1' ) );
     exit;
   }
