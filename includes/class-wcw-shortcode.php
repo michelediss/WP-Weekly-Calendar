@@ -55,14 +55,14 @@ class WCW_Shortcode {
 
         <div class="collapse wpwc-collapse" id="<?php echo esc_attr($collapse_id); ?>">
           <div class="wpwc-toolbar" role="tablist" aria-label="Filtra per attività">
-            <a class="wpwc-chip<?php echo $current==='' ? ' is-active' : ''; ?>" href="#" data-wpwc-cat="">
-              <span class="dot" style="background:#999"></span>
+            <a class="wpwc-chip d-inline-block button button-hover rounded-pill border-button bg-bianco text-nero px-4 py-2 text-base text-uppercase heading <?php echo $current==='' ? ' is-active' : ''; ?>" href="#" data-wpwc-cat="">
+              <span class="dot me-1" style="background:#999"></span>
               Tutte le attività
             </a>
             <?php foreach ($cats as $c):
               $color = sanitize_hex_color($c->color) ?: '#777777';
             ?>
-              <a class="wpwc-chip<?php echo $current===$c->slug ? ' is-active' : ''; ?>" href="#" data-wpwc-cat="<?php echo esc_attr($c->slug); ?>">
+              <a class="wpwc-chip d-inline-block button button-hover rounded-pill border-button bg-bianco text-nero px-4 py-2 text-base text-uppercase heading<?php echo $current===$c->slug ? ' is-active' : ''; ?>" href="#" data-wpwc-cat="<?php echo esc_attr($c->slug); ?>">
                 <span class="dot" style="background:<?php echo esc_attr($color); ?>"></span>
                 <?php echo esc_html($c->name); ?>
               </a>
@@ -75,31 +75,31 @@ class WCW_Shortcode {
         <?php
           $cols = count($visible);
         ?>
-        <div class="wpwc-grid">
+        <div class="wpwc-grid d-block mt-5 wpwc-grid button rounded-4 border-button bg-white text-nero px-4 py-0">
           <div class="wpwc-head" style="grid-template-columns:repeat(<?php echo (int)$cols; ?>,minmax(0,1fr))">
             <?php foreach ($visible as $d): ?>
-              <div class="wpwc-day"><?php echo esc_html($labels[$d]); ?></div>
+              <div class="wpwc-day heading text-grigio text-lg pt-3 pb-4 border-nero"><?php echo esc_html($labels[$d]); ?></div>
             <?php endforeach; ?>
           </div>
           <div class="wpwc-cols" style="grid-template-columns:repeat(<?php echo (int)$cols; ?>,minmax(0,1fr))">
             <?php foreach ($visible as $d): ?>
-              <div class="wpwc-cell" data-day="<?php echo (int)$d; ?>">
+              <div class="wpwc-cell border-nero" data-day="<?php echo (int)$d; ?>">
                 <?php foreach ($by[$d] as $ev):
                   $color = sanitize_hex_color($ev->category_color ?? '') ?: '#777777';
                   $bg    = (strlen($color)===7) ? $color.'1A' : '#0000000D';
                 ?>
-                  <div class="wpwc-event"
+                  <div class="wpwc-event mb-3"
                        data-cat="<?php echo esc_attr($ev->category_slug ?: ''); ?>"
-                       style="border-left:6px solid <?php echo esc_attr($color); ?>;background:linear-gradient(0deg,<?php echo esc_attr($bg); ?>,<?php echo esc_attr($bg); ?>),#fff">
-                    <div class="title"><?php echo esc_html($ev->name); ?></div>
-                    <div class="meta">
+                       >
+                    <div class="title text-base heading text-nero"><?php echo esc_html($ev->name); ?></div>
+                    <p class="meta paragraph text-sm text-nero text-capitalize">
                       <?php echo esc_html(substr($ev->time,0,5)); ?>
                       <?php if (!empty($ev->category_name)): ?>
-                        • <a href="<?php echo esc_url( home_url('/attivita/' . ($ev->category_slug ?? '')) ); ?>">
+                        • <a href="<?php echo esc_url( home_url('/attivita/' . ($ev->category_slug ?? '')) ); ?>" class="text-grigio">
                           <?php echo esc_html($ev->category_name); ?>
                         </a>
                       <?php endif; ?>
-                    </div>
+                      </p>
                   </div>
                 <?php endforeach; ?>
               </div>
