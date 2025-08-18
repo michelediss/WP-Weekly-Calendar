@@ -4,29 +4,43 @@ class WCW_Shortcode {
 
   public static function init() {
     add_shortcode( 'wcw_schedule', [ __CLASS__, 'render' ] );
-    add_shortcode( 'weekly_calendar', [ __CLASS__, 'render' ] ); // alias
+    add_shortcode( 'weekly_calendar', [ __CLASS__, 'render' ] ); // alias retrocompatibile
   }
 
+  /**
+   * Shortcode [wcw_schedule]
+   *
+   * Attributi:
+   * - category            => slug della categoria (CPT: attivita) da filtrare (default: '')
+   * - filters             => '1' per mostrare i chip filtri, '0' per nasconderli (default: '1')
+   * - show_when_closed    => '1' per mostrare calendario ANCHE se chiuso (con banner),
+   *                          '0' per mostrare SOLO il messaggio di chiusura (default: '0')
+   */
   public static function render( $atts ) {
     $atts = shortcode_atts( [
-      'category' => '',
-      'filters'  => '1', // 1|0
+      'category'         => '',
+      'filters'          => '1',
+      'show_when_closed' => '0',
     ], $atts, 'wcw_schedule' );
 
-    // Messaggio di chiusura (se configurato)
-    if ( class_exists( 'WCW_Closures' ) && WCW_Closures::is_closed_now() ) {
-      return WCW_Closures::message_html();
+    $category_slug   = sanitize_title( $atts['category'] );
+    $show_filters    = $atts['filters'] === '1';
+
+    // Stato chiusura
+    $has_closures = class_exists( 'WCW_Closures' );
+    $is_closed    = $has_closures ? WCW_Closures::is_closed_now() : false;
+    $closure_html = ( $has_closures && $is_closed ) ? WCW_Closures::message_html() : '';
+
+    // Se chiuso e NON si vuole mostrare il calendario, ritorno solo il messaggio
+    if ( $is_closed && $atts['show_when_closed'] !== '1' ) {
+      return $closure_html;
     }
 
-    $category_slug = sanitize_title( $atts['category'] );
-    $show_filters  = $atts['filters'] === '1';
-
+    // Dati
     $rows = WCW_DB::get_events( $category_slug );
-
-    // Prepara categorie per i chip
     $cats = $show_filters ? WCW_DB::get_filter_categories() : [];
 
-    // Raggruppo per giorno
+    // Raggruppo per giorno (1=Lun ... 7=Dom)
     $by_day = [ 1 => [], 2 => [], 3 => [], 4 => [], 5 => [], 6 => [], 7 => [] ];
     foreach ( $rows as $r ) {
       $d = (int) $r->weekday;
@@ -42,21 +56,31 @@ class WCW_Shortcode {
     }
     unset( $items );
 
+    // Render
     ob_start();
     ?>
-    <div class="wpwc-schedule">
+    <div class="wpwc-schedule<?php echo $is_closed ? ' is-closed' : ''; ?>">
+
+      <?php if ( $closure_html ) : ?>
+        <div class="wpwc-closure">
+          <?php echo $closure_html; // già sanificato nella classe WCW_Closures ?>
+        </div>
+      <?php endif; ?>
 
       <?php if ( $show_filters ) : ?>
         <div class="wpwc-filters">
-          <a href="#" class="wpwc-chip <?php echo $category_slug === '' ? 'is-active' : ''; ?>" data-wpwc-cat=""><?php esc_html_e( 'Tutte', 'wcw' ); ?></a>
+          <a href="#"
+             class="wpwc-chip <?php echo $category_slug === '' ? 'is-active' : ''; ?>"
+             data-wpwc-cat="">
+            <?php esc_html_e( 'Tutte', 'wcw' ); ?>
+          </a>
           <?php foreach ( $cats as $c ) :
             $col = $c->color ? sanitize_hex_color( $c->color ) : '';
             ?>
             <a href="#"
                class="wpwc-chip <?php echo $category_slug === $c->slug ? 'is-active' : ''; ?>"
                data-wpwc-cat="<?php echo esc_attr( $c->slug ); ?>"
-               <?php echo $col ? 'style="--chip:' . esc_attr( $col ) . ';"' : ''; ?>
-            >
+               <?php echo $col ? 'style="--chip:' . esc_attr( $col ) . ';"' : ''; ?>>
               <?php echo esc_html( $c->name ); ?>
             </a>
           <?php endforeach; ?>
@@ -77,7 +101,7 @@ class WCW_Shortcode {
             <?php else : ?>
               <ul class="wpwc-events">
                 <?php foreach ( $items as $ev ) :
-                  $col = $ev->category_color ? sanitize_hex_color( $ev->category_color ) : '';
+                  $col   = $ev->category_color ? sanitize_hex_color( $ev->category_color ) : '';
                   $start = $ev->time ? substr( $ev->time, 0, 5 ) : '';
                   $end   = $ev->time_end ? substr( $ev->time_end, 0, 5 ) : '';
                   ?>
@@ -111,7 +135,9 @@ class WCW_Shortcode {
           if (el) el.classList.add('is-active');
         };
         const applyFilter = (slug) => {
-          const base = window.location.href.replace(/([?&])category=[^&]*(&|$)/, '$1').replace(/[?&]$/, '');
+          const base = window.location.href
+            .replace(/([?&])category=[^&]*(&|$)/, '$1')
+            .replace(/[?&]$/, '');
           const url = slug ? (base + (base.includes('?') ? '&' : '?') + 'category=' + encodeURIComponent(slug)) : base;
           window.location.href = url;
         };
