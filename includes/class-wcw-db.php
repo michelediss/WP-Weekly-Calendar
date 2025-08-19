@@ -1,6 +1,7 @@
 <?php
 if (!class_exists('WCW_DB')):
 class WCW_DB {
+
   public static function table_events(){ global $wpdb; return $wpdb->prefix.'wcw_events'; }
 
   public static function create_tables(){
@@ -10,8 +11,10 @@ class WCW_DB {
     $sql = "CREATE TABLE $t (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       name VARCHAR(120) NOT NULL,
+      subtitle VARCHAR(180) NULL,
       weekday TINYINT UNSIGNED NOT NULL,
       time TIME NOT NULL,
+      time_end TIME NULL,
       category_id BIGINT UNSIGNED NULL, -- ID del post CPT 'attivita'
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -19,6 +22,24 @@ class WCW_DB {
       KEY idx_cat (category_id)
     ) $charset;";
     dbDelta($sql);
+  }
+
+  /**
+   * Migrazione schema da versioni precedenti:
+   * - aggiunge colonne 'subtitle' e 'time_end' se mancano
+   */
+  public static function maybe_upgrade_schema(){
+    global $wpdb; $t=self::table_events();
+
+    $need_subtitle = $wpdb->get_var( $wpdb->prepare("SHOW COLUMNS FROM $t LIKE %s", 'subtitle') ) ? false : true;
+    $need_time_end = $wpdb->get_var( $wpdb->prepare("SHOW COLUMNS FROM $t LIKE %s", 'time_end') ) ? false : true;
+
+    if ($need_subtitle) {
+      $wpdb->query("ALTER TABLE $t ADD COLUMN subtitle VARCHAR(180) NULL AFTER name");
+    }
+    if ($need_time_end) {
+      $wpdb->query("ALTER TABLE $t ADD COLUMN time_end TIME NULL AFTER time");
+    }
   }
 
   // Categorie dal CPT 'attivita' + ACF 'colore' (per admin select)
@@ -79,25 +100,33 @@ class WCW_DB {
     return $wpdb->get_results($sql);
   }
 
-  // CRUD
-  public static function insert_event($name,$weekday,$time,$category_id){
+  // CRUD aggiornato con sottotitolo + ora fine
+  public static function insert_event($name,$subtitle,$weekday,$time,$time_end,$category_id){
     global $wpdb;
-    return (bool)$wpdb->insert(self::table_events(), [
+    $data = [
       'name'        => sanitize_text_field($name),
+      'subtitle'    => ($subtitle !== '' ? sanitize_text_field($subtitle) : null),
       'weekday'     => max(1,min(7,(int)$weekday)),
       'time'        => preg_replace('/[^0-9:]/','',$time),
+      'time_end'    => ($time_end !== '' ? preg_replace('/[^0-9:]/','',$time_end) : null),
       'category_id' => $category_id ? (int)$category_id : null,
-    ]);
+    ];
+    return (bool)$wpdb->insert(self::table_events(), $data);
   }
-  public static function update_event($id,$name,$weekday,$time,$category_id){
+
+  public static function update_event($id,$name,$subtitle,$weekday,$time,$time_end,$category_id){
     global $wpdb; $id=(int)$id; if(!$id) return false;
-    return (bool)$wpdb->update(self::table_events(), [
+    $data = [
       'name'        => sanitize_text_field($name),
+      'subtitle'    => ($subtitle !== '' ? sanitize_text_field($subtitle) : null),
       'weekday'     => max(1,min(7,(int)$weekday)),
       'time'        => preg_replace('/[^0-9:]/','',$time),
+      'time_end'    => ($time_end !== '' ? preg_replace('/[^0-9:]/','',$time_end) : null),
       'category_id' => $category_id ? (int)$category_id : null,
-    ], ['id'=>$id]);
+    ];
+    return (bool)$wpdb->update(self::table_events(), $data, ['id'=>$id]);
   }
+
   public static function delete_event($id){
     global $wpdb; return (bool)$wpdb->delete(self::table_events(), ['id'=>(int)$id]);
   }

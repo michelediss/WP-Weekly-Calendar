@@ -21,7 +21,7 @@ class WCW_Closures {
     $e  = DateTime::createFromFormat('Y-m-d', $end, $tz);
     $months = [1=>'gennaio',2=>'febbraio',3=>'marzo',4=>'aprile',5=>'maggio',6=>'giugno',7=>'luglio',8=>'agosto',9=>'settembre',10=>'ottobre',11=>'novembre',12=>'dicembre'];
     $date_it = intval($e->format('j')) . ' ' . $months[intval($e->format('n'))] . ' ' . $e->format('Y');
-    return '<div class="wcw-closure-message">'.esc_html(str_replace('{date}', $date_it, $tpl)).'</div>';
+    return '<h2 class="wcw-closure-message paragraph text-xl d-inline-block text-nero px-2">'.esc_html(str_replace('{date}', $date_it, $tpl)).'</h2>';
   }
 }
 endif;

@@ -1,55 +1,85 @@
-/* Toolbar */
+/* =========================================================
+   Toolbar filtri
+========================================================= */
 .wpwc-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
 .wpwc-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #e5e7eb;border-radius:999px;background:#fff;text-decoration:none}
-.wpwc-chip.is-active{border-color:#cbd5e1;background:#f8fafc}
+.wpwc-chip.is-active{background:#12131D;color:#fff}
 .wpwc-chip .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
 
-/* Collapse toggle: solo <1024px */
+/* Toggle filtri (solo <1024px) */
 .wpwc-filter-toggle{display:inline-block;margin:0 0 10px 0}
 @media (min-width:1024px){
   .wpwc-filter-toggle{display:none !important;}
   .wpwc-collapse.collapse{display:block !important;height:auto !important;visibility:visible !important;}
 }
 
-/* Griglia */
-#wpwc-grid{overflow-x: auto;}
-.wpwc-grid{display:grid;gap:12px;width: auto;}
-.wpwc-head{display:grid;gap:12px}
-.wpwc-head > div:last-child{border:none 0px;}
-.wpwc-cols{display:grid;gap:12px}
-.wpwc-cols > div:last-child{border:none 0px;}
-.wpwc-cell{min-height:20px;border-right: solid 1px;}
-.wpwc-day {
-  border-right: solid 1px;
+/* =========================================================
+   Griglia calendario
+   Markup: 
+   #wpwc-grid > .wpwc-grid > .wpwc-cols > .wpwc-col > (.wpwc-day + .wpwc-cell)
+========================================================= */
+:root{
+  --wpwc-border:#12131D;
 }
 
-/* Card evento */
+#wpwc-grid{overflow-x:auto}
 
+/* Griglia colonne (nessuna gap per avere separatori continui) */
+.wpwc-cols{
+  display:grid;
+  grid-template-columns:var(--wpwc-cols, repeat(7,minmax(0,1fr)));
+  gap:0;
+}
 
-/* Fade e filtro client-side */
+/* Singola colonna: header + contenuto */
+.wpwc-col{
+  display:flex;
+  flex-direction:column;
+  min-width:0;                 /* evita overflow dei testi lunghi */
+  border-right:1px solid var(--wpwc-border);
+}
+.wpwc-col:last-child{border-right:none}
+
+/* Header della colonna (giorno) */
+.wpwc-day{
+  border-top:1px solid var(--wpwc-border);
+  border-bottom:1px solid var(--wpwc-border);
+  line-height:1.2;
+  font-weight:700;
+  position:sticky; top:0; z-index:1; /* opzionale: resta visibile in scroll */
+}
+
+/* Corpo colonna */
+.wpwc-cell{
+  min-height:20px;
+}
+
+/* =========================================================
+   Card evento
+========================================================= */
+.wpwc-event{margin:0 0 .75rem 0}
+.wpwc-event .title{margin:0;line-height:1.3}
+.wpwc-event .subtitle{margin:2px 0 4px 0;line-height:1.2;opacity:.85}
+
+/* =========================================================
+   Effetti / filtro client-side
+========================================================= */
 .wpwc-fade{transition:opacity 80ms cubic-bezier(.2,0,.2,1)}
 .wpwc-fade.is-out{opacity:0}
 .wpwc-event.is-hidden{display:none}
 
-/* Colonne responsive: desktop = n giorni selezionati; mobile 4 / 2 */
+/* =========================================================
+   Responsive
+   Desktop: n colonne visibili (var --wpwc-cols)
+   Tablet: 4 colonne
+   Mobile: 2 colonne
+========================================================= */
 @media (min-width:1024px){
-  .wpwc-head{grid-template-columns:var(--wpwc-cols, repeat(7,minmax(0,1fr)));}
   .wpwc-cols{grid-template-columns:var(--wpwc-cols, repeat(7,minmax(0,1fr)));}
 }
 @media (max-width:1023.98px){
-  .wpwc-head,.wpwc-cols{grid-template-columns:repeat(4,minmax(0,1fr));}
-  #wpwc-grid{overflow-x: scroll;}
-  .wpwc-grid{
-    width: max-content;
-    margin-right: 1.5rem !important;
-    margin-left: 1.5rem !important;
-  }
-  .wpwc-filter-toggle{
-    margin-left: 1.5rem !important;
-  }
-  .calendar-outer-container, .calendar-inner-container{padding: 0!important;}
-
+  .wpwc-cols{grid-template-columns:repeat(2,minmax(0,1fr));}
 }
-@media (max-width:640px){
-  .wpwc-head,.wpwc-cols{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:767px){
+  .wpwc-cols{grid-template-columns:repeat(1,minmax(0,1fr))}
 }
