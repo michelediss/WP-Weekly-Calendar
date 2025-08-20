@@ -97,13 +97,13 @@ if (!class_exists('WCW_Shortcode')):
           </div>
         <?php endif; ?>
 
-        <div id="wpwc-grid" class="wpwc-fade">
+        <div id="wpwc-grid" class="wpwc-fade d-flex justify-content-center">
           <?php $cols = count($visible); ?>
-          <div class="wpwc-grid d-block border-container rounded-4 border-button bg-bianco-puro text-nero px-0 py-0">
-            <div class="wpwc-cols" style="--wpwc-cols: repeat(<?php echo (int) $cols; ?>,minmax(0,1fr));">
+          <div class="wpwc-grid d-inline-block border-container rounded-4 border-button bg-bianco-puro text-nero px-0 py-0">
+            <div class="wpwc-cols row mx-0">
 
               <?php foreach ($visible as $d): ?>
-                <div class="wpwc-col" data-day="<?php echo (int) $d; ?>">
+                <div class="wpwc-col col-sm-12 col-md-6 col-lg-3 px-0 text-center" data-day="<?php echo (int) $d; ?>">
                   <div class="wpwc-day heading text-nero text-lg py-3 px-2 bg-azzurro-chiaro">
                     <?php echo esc_html($labels[$d]); ?>
                   </div>

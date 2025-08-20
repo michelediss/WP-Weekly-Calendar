@@ -14,31 +14,37 @@
 }
 
 /* =========================================================
-   Griglia calendario
-   Markup: 
-   #wpwc-grid > .wpwc-grid > .wpwc-cols > .wpwc-col > (.wpwc-day + .wpwc-cell)
+   Griglia calendario (matrice 1/2/4, senza allargare oltre col-max)
 ========================================================= */
 :root{
   --wpwc-border:#12131D;
+  --cols:4;           /* desktop di default: 4 colonne per riga */
+  --col-max:340px;    /* larghezza massima di ogni colonna (evita lo stretch su widescreen) */
 }
 
-#wpwc-grid{overflow-x:auto}
+@media (max-width:1023.98px){ :root{ --cols:2; } }  /* tablet: 2 colonne */
+@media (max-width:767.98px){  :root{ --cols:1; } }  /* mobile: 1 colonna */
 
-/* Griglia colonne (nessuna gap per avere separatori continui) */
+#wpwc-grid{overflow-x:hidden} /* in matrice non serve lo scroll orizzontale */
+
 .wpwc-cols{
   display:grid;
-  grid-template-columns:var(--wpwc-cols, repeat(7,minmax(0,1fr)));
   gap:0;
+  justify-content:start; /* se le colonne non riempiono al 100%, rimangono a sinistra */
+  /* 1/2/4 colonne per riga; su viewport larghi non superano --col-max */
+  grid-template-columns: repeat(var(--cols), minmax(0, min(1fr, var(--col-max))));
 }
 
 /* Singola colonna: header + contenuto */
 .wpwc-col{
   display:flex;
   flex-direction:column;
-  min-width:0;                 /* evita overflow dei testi lunghi */
+  min-width:0;
   border-right:1px solid var(--wpwc-border);
 }
-.wpwc-col:last-child{border-right:none}
+.wpwc-col:nth-child(-n+var(--cols)){} /* segnaposto: se vuoi bordi top row */
+.wpwc-col:is(:nth-child(var(--cols)n)){border-right:none} /* rimuovi bordo a fine riga */
+ /* NB: se preferisci, lascia il bordo solo con :not(:nth-child(var(--cols)n)) */
 
 /* Header della colonna (giorno) */
 .wpwc-day{
@@ -46,13 +52,12 @@
   border-bottom:1px solid var(--wpwc-border);
   line-height:1.2;
   font-weight:700;
-  position:sticky; top:0; z-index:1; /* opzionale: resta visibile in scroll */
+  position:sticky; top:0; z-index:1;
+  background:#fff;
 }
 
 /* Corpo colonna */
-.wpwc-cell{
-  min-height:20px;
-}
+.wpwc-cell{ min-height:20px; }
 
 /* =========================================================
    Card evento
@@ -68,18 +73,5 @@
 .wpwc-fade.is-out{opacity:0}
 .wpwc-event.is-hidden{display:none}
 
-/* =========================================================
-   Responsive
-   Desktop: n colonne visibili (var --wpwc-cols)
-   Tablet: 4 colonne
-   Mobile: 2 colonne
-========================================================= */
-@media (min-width:1024px){
-  .wpwc-cols{grid-template-columns:var(--wpwc-cols, repeat(7,minmax(0,1fr)));}
-}
-@media (max-width:1023.98px){
-  .wpwc-cols{grid-template-columns:repeat(2,minmax(0,1fr));}
-}
-@media (max-width:767px){
-  .wpwc-cols{grid-template-columns:repeat(1,minmax(0,1fr))}
-}
+/* Nascondi colonne vuote (il tuo JS le marca) */
+.wpwc-col.is-empty{display:none !important;}
