@@ -1,55 +1,89 @@
-(function(){
-  function computeEmptyDays(){
-    var gridRoot = document.getElementById('wpwc-grid') || document;
-    var cols = gridRoot.querySelectorAll('.wpwc-cols .wpwc-col');
-    var anyVisible = false;
-    cols.forEach(function(col){
-      var events = col.querySelectorAll('.wpwc-event');
-      var hasVisible = false;
-      for(var i=0;i<events.length;i++){
-        var ev = events[i];
-        if(!ev.classList.contains('is-hidden') && ev.offsetParent !== null){
-          hasVisible = true; break;
-        }
+/* WP Weekly Calendar - no URL sync + hide empty columns + tablet cols auto(1/2) */
+(function (w, d) {
+  const initWrap = (wrap) => {
+    if (!wrap || wrap.dataset.wcInitialized) return;
+    wrap.dataset.wcInitialized = '1';
+
+    const grid = wrap.querySelector('#wpwc-grid, .wpwc-grid');
+    if (!grid) return;
+
+    const chips  = wrap.querySelectorAll('.wpwc-chip');
+    const events = wrap.querySelectorAll('.wpwc-event');
+    const cols   = wrap.querySelectorAll('.wpwc-col');
+    const row    = wrap.querySelector('.wpwc-row');
+    grid.style.willChange = 'opacity';
+
+    const isTablet = () => w.matchMedia('(min-width:768px) and (max-width:1023.98px)').matches;
+    const visibleColsCount = () => wrap.querySelectorAll('.wpwc-col:not(.d-none)').length;
+
+    // ⬇️ imposta dinamicamente 1 o 2 colonne su tablet, rimuove lo style fuori da tablet
+    const setTabletColumns = () => {
+      if (!row) return;
+      if (isTablet()) {
+        const n = Math.min(2, Math.max(1, visibleColsCount())); // clamp a [1,2]
+        row.style.gridTemplateColumns = `repeat(${n}, var(--wpwc-colw-md))`;
+      } else {
+        row.style.removeProperty('grid-template-columns');
       }
-      col.classList.toggle('is-empty', !hasVisible);
-      col.setAttribute('aria-hidden', String(!hasVisible));
-      if(hasVisible) anyVisible = true;
-    });
-    gridRoot.classList.toggle('wpwc-all-empty', !anyVisible);
-    document.dispatchEvent(new CustomEvent('wpwc:empties-updated'));
-  }
-
-  function debounce(fn, wait){
-    var t; return function(){ var ctx=this, args=arguments;
-      clearTimeout(t); t=setTimeout(function(){ fn.apply(ctx,args); }, wait);
     };
-  }
 
-  var recompute = debounce(computeEmptyDays, 16);
+    const setActive = (el) => chips.forEach(c => c.classList.toggle('is-active', c === el));
 
-  document.addEventListener('DOMContentLoaded', function(){
-    computeEmptyDays();
-
-    // Ricalcola dopo interazioni sui filtri (chip/toggle) – compatibile con filtri client-side
-    document.addEventListener('click', function(e){
-      var el = e.target.closest('.wpwc-chip, [data-wpwc-filter], .wpwc-filter-toggle');
-      if(el) setTimeout(recompute, 0);
-    }, true);
-
-    // Ricalcola quando altri script annunciano la fine dei filtri
-    document.addEventListener('wpwc:filters-applied', recompute);
-
-    // Osserva cambiamenti DOM (aggiunta/rimozione eventi, classi .is-hidden, ecc.)
-    var grid = document.querySelector('#wpwc-grid .wpwc-cols') || document.querySelector('.wpwc-cols');
-    if(grid && 'MutationObserver' in window){
-      var mo = new MutationObserver(function(){
-        recompute();
+    // ⬇️ aggiorna la visibilità delle colonne in base agli eventi visibili
+    const updateColumnsVisibility = () => {
+      cols.forEach(col => {
+        const hasVisibleEvent = !!col.querySelector('.wpwc-cell .wpwc-event:not(.is-hidden)');
+        col.classList.toggle('d-none', !hasVisibleEvent);
       });
-      mo.observe(grid, { attributes:true, attributeFilter:['class','style'], childList:true, subtree:true });
+      setTabletColumns(); // aggiorna il numero di tracce su tablet
+    };
+
+    const applyFilter = (slug) => {
+      grid.classList.add('is-out');
+      requestAnimationFrame(() => {
+        const s = slug || '';
+        events.forEach(ev => {
+          ev.classList.toggle('is-hidden', s && (ev.getAttribute('data-cat') || '') !== s);
+        });
+        updateColumnsVisibility();
+        requestAnimationFrame(() => grid.classList.remove('is-out'));
+      });
+    };
+
+    // stato iniziale
+    const initial = wrap.dataset.initialSlug || '';
+    if (initial) {
+      const current = Array.from(chips).find(c => (c.getAttribute('data-wpwc-cat') || '') === initial);
+      if (current) setActive(current);
+      applyFilter(initial);
+    } else {
+      updateColumnsVisibility(); // nasconde colonne vuote e setta le tracce su tablet
     }
 
-    // Espone una API manuale
-    window.wpwcUpdateEmptyDays = computeEmptyDays;
-  });
-})();
+    // delega click sui chip (senza aggiornare l'URL)
+    wrap.addEventListener('click', (e) => {
+      const chip = e.target.closest('.wpwc-chip');
+      if (!chip || !wrap.contains(chip)) return;
+      e.preventDefault();
+      const slug = chip.getAttribute('data-wpwc-cat') || '';
+      setActive(chip);
+      applyFilter(slug);
+    });
+
+    // aggiorna dinamicamente su resize/orientamento
+    let raf;
+    const onResize = () => {
+      if (raf) return;
+      raf = w.requestAnimationFrame(() => {
+        raf = null;
+        setTabletColumns();
+      });
+    };
+    w.addEventListener('resize', onResize, { passive: true });
+    w.addEventListener('orientationchange', onResize);
+  };
+
+  const init = (root) => (root || d).querySelectorAll('.wpwc-wrap').forEach(initWrap);
+  d.readyState === 'loading' ? d.addEventListener('DOMContentLoaded', () => init()) : init();
+  w.WPWC = w.WPWC || {}; w.WPWC.init = init;
+})(window, document);

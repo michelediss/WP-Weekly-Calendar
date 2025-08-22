@@ -23,19 +23,13 @@ class WCW_Admin_Page {
   // AJAX: crea/aggiorna
   public static function ajax_save_event(){
     self::check_caps_and_nonce();
-    $id        = intval($_POST['id'] ?? 0);
-    $name      = sanitize_text_field($_POST['name'] ?? '');
-    $subtitle  = sanitize_text_field($_POST['subtitle'] ?? '');
-    $day       = max(1, min(7, intval($_POST['weekday'] ?? 1)));
-    $time      = preg_replace('/[^0-9:]/','', $_POST['time'] ?? '');
-    $time_end  = preg_replace('/[^0-9:]/','', $_POST['time_end'] ?? '');
-    $cat       = intval($_POST['category_id'] ?? 0) ?: null;
-
+    $id   = intval($_POST['id'] ?? 0);
+    $name = sanitize_text_field($_POST['name'] ?? '');
+    $day  = max(1, min(7, intval($_POST['weekday'] ?? 1)));
+    $time = preg_replace('/[^0-9:]/','', $_POST['time'] ?? '');
+    $cat  = intval($_POST['category_id'] ?? 0) ?: null;
     if ($name==='' || $time==='') wp_send_json_error(['message'=>'Dati mancanti'], 400);
-    $ok = $id
-      ? WCW_DB::update_event($id,$name,$subtitle,$day,$time,$time_end,$cat)
-      : WCW_DB::insert_event($name,$subtitle,$day,$time,$time_end,$cat);
-
+    $ok = $id ? WCW_DB::update_event($id,$name,$day,$time,$cat) : WCW_DB::insert_event($name,$day,$time,$cat);
     $ok ? wp_send_json_success() : wp_send_json_error(['message'=>'Errore DB'], 500);
   }
 
@@ -69,13 +63,13 @@ class WCW_Admin_Page {
   public static function render_page(){
     if (!current_user_can('manage_options')) return;
 
-    $cats    = WCW_DB::get_categories_all();
-    $events  = WCW_DB::get_events('');
+    $cats   = WCW_DB::get_categories_all();
+    $events = WCW_DB::get_events('');
     $enabled = (bool) get_option('wcw_closure_enabled', 0);
-    $start   = get_option('wcw_closure_start', '');
-    $end     = get_option('wcw_closure_end', '');
-    $msg     = get_option('wcw_closure_message', 'Le attività riprenderanno il giorno {date}');
-    $nonce   = wp_create_nonce('wcw_nonce');
+    $start = get_option('wcw_closure_start', '');
+    $end   = get_option('wcw_closure_end', '');
+    $msg   = get_option('wcw_closure_message', 'Le attività riprenderanno il giorno {date}');
+    $nonce = wp_create_nonce('wcw_nonce');
 
     $visible_days = get_option('wcw_visible_days', []);
     if (!is_array($visible_days) || empty($visible_days)) $visible_days = [1,2,3,4,5,6,7];
@@ -90,7 +84,6 @@ class WCW_Admin_Page {
           <form id="wcw-event-form" onsubmit="return false;">
             <input type="hidden" name="id" value="">
             <p><label>Nome <input type="text" name="name" required></label></p>
-            <p><label>Sottotitolo <input type="text" name="subtitle" placeholder="(opzionale)"></label></p>
             <p><label>Giorno
               <select name="weekday">
                 <option value="1">Lunedì</option>
@@ -102,10 +95,7 @@ class WCW_Admin_Page {
                 <option value="7">Domenica</option>
               </select>
             </label></p>
-            <p>
-              <label>Ora inizio <input type="time" name="time" required></label>
-              <label style="margin-left:12px">Ora fine <input type="time" name="time_end"></label>
-            </p>
+            <p><label>Orario <input type="time" name="time" required></label></p>
             <p><label>Categoria
               <select name="category_id">
                 <option value="">— nessuna —</option>
@@ -159,26 +149,19 @@ class WCW_Admin_Page {
       <h2>Attività salvate</h2>
       <table class="widefat" id="wcw-table">
         <thead>
-          <tr><th>Nome</th><th>Sottotitolo</th><th>Giorno</th><th>Orario</th><th>Categoria</th><th>Azione</th></tr>
+          <tr><th>Nome</th><th>Giorno</th><th>Orario</th><th>Categoria</th><th>Azione</th></tr>
         </thead>
         <tbody>
-        <?php foreach ($events as $e): 
-          $time    = $e->time ? substr($e->time,0,5) : '';
-          $timeEnd = (!empty($e->time_end)) ? substr($e->time_end,0,5) : '';
-          $timeStr = $timeEnd ? ($time.'–'.$timeEnd) : $time;
-        ?>
+        <?php foreach ($events as $e): ?>
           <tr
             data-id="<?php echo intval($e->id); ?>"
             data-day="<?php echo intval($e->weekday); ?>"
-            data-time="<?php echo esc_attr($time); ?>"
-            data-time_end="<?php echo esc_attr($timeEnd); ?>"
-            data-subtitle="<?php echo esc_attr($e->subtitle ?? ''); ?>"
+            data-time="<?php echo esc_attr(substr($e->time,0,5)); ?>"
             data-cat="<?php echo intval($e->category_id); ?>"
           >
             <td class="c-name"><?php echo esc_html($e->name); ?></td>
-            <td class="c-subtitle"><?php echo esc_html($e->subtitle ?? ''); ?></td>
             <td class="c-day"><?php echo esc_html(self::day_label((int)$e->weekday)); ?></td>
-            <td class="c-time"><?php echo esc_html($timeStr); ?></td>
+            <td class="c-time"><?php echo esc_html(substr($e->time,0,5)); ?></td>
             <td class="c-cat"><?php echo esc_html($e->category_name ?? ''); ?></td>
             <td>
               <a href="#" class="wcw-edit">Modifica</a> |
@@ -198,12 +181,10 @@ class WCW_Admin_Page {
 
       function fillFormFromRow(tr){
         const f = $('#wcw-event-form');
-        f.id.value         = tr.dataset.id;
-        f.name.value       = tr.querySelector('.c-name').textContent.trim();
-        f.subtitle.value   = tr.dataset.subtitle || '';
-        f.weekday.value    = tr.dataset.day;
-        f.time.value       = tr.dataset.time || '';
-        f.time_end.value   = tr.dataset.time_end || '';
+        f.id.value        = tr.dataset.id;
+        f.name.value      = tr.querySelector('.c-name').textContent.trim();
+        f.weekday.value   = tr.dataset.day;
+        f.time.value      = tr.dataset.time;
         f.category_id.value = tr.dataset.cat || '';
       }
 

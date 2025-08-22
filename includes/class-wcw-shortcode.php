@@ -2,7 +2,6 @@
 if (!class_exists('WCW_Shortcode')):
   class WCW_Shortcode
   {
-
     public static function init()
     {
       add_shortcode('wcw_schedule', [__CLASS__, 'render']);
@@ -19,17 +18,11 @@ if (!class_exists('WCW_Shortcode')):
 
       // Parametri e contesto
       $qs = isset($_GET['attivita']) ? sanitize_text_field(wp_unslash($_GET['attivita'])) : '';
-      $current = $qs !== '' ? $qs : $atts['category'];
+      $current = ($qs !== '') ? $qs : $atts['category'];
       $show_filters = in_array(strtolower((string) $atts['filters']), ['1', 'true', 'yes', 'on'], true);
 
       // Siamo dentro una singola pagina del CPT "attivita"?
-      $is_attivita_ctx = false;
-      if (function_exists('get_queried_object')) {
-        $qo = get_queried_object();
-        if ($qo instanceof WP_Post && isset($qo->post_type) && $qo->post_type === 'attivita') {
-          $is_attivita_ctx = true;
-        }
-      }
+      $is_attivita_ctx = function_exists('is_singular') && is_singular('attivita');
 
       $uid = 'wpwc_' . wp_generate_uuid4();
       $cats = $show_filters ? WCW_DB::get_filter_categories() : [];
@@ -57,53 +50,63 @@ if (!class_exists('WCW_Shortcode')):
       if (empty($visible))
         $visible = [1, 2, 3, 4, 5, 6, 7];
 
-      ob_start(); ?>
-      <div class="wpwc-wrap" id="<?php echo esc_attr($uid); ?>">
+      // SOLO switch dell'allineamento (niente d-flex qui)
+      $grid_outer_classes = 'wpwc-fade d-flex ' . ($is_attivita_ctx ? 'justify-content-start' : 'justify-content-center');
 
-        <?php if ($is_attivita_ctx): ?>
-          <style>
-            /* Nascondi il link alla categoria quando siamo dentro una singola 'attivita' */
-            #<?php echo esc_html($uid); ?> .wpwc-hide-catlink {
-              display: none !important;
-            }
-          </style>
-        <?php endif; ?>
+      ob_start(); ?>
+      <div class="wpwc-wrap" id="<?php echo esc_attr($uid); ?>" data-initial-slug="<?php echo esc_attr($current); ?>">
 
         <?php if ($show_filters): ?>
-          <?php $collapse_id = 'wpwcFilters_' . wp_generate_uuid4(); ?>
-          <p class="wpwc-filter-toggle heading text-nero text-lg mb-4" type="button" data-bs-toggle="collapse"
-            data-bs-target="#<?php echo esc_attr($collapse_id); ?>" aria-expanded="false"
-            aria-controls="<?php echo esc_attr($collapse_id); ?>">
-            Filtri attività >
-          </p>
+          <?php
+          // chip riutilizzabili
+          ob_start(); ?>
+          <a class="wpwc-chip d-inline-block button button-hover rounded-pill border-button bg-bianco-puro text-nero px-4 py-2 text-xs text-uppercase heading <?php echo $current === '' ? ' is-active' : ''; ?>"
+            href="#" data-wpwc-cat="" data-bs-dismiss="offcanvas">
+            <span class="dot me-2 bg-grigio"></span>
+            Tutte le attività
+          </a>
+          <?php foreach ($cats as $c):
+            $color = sanitize_hex_color($c->color) ?: '#777777'; ?>
+            <a class="wpwc-chip d-inline-block button button-hover rounded-pill border-button bg-bianco-puro text-nero px-4 py-2 text-xs text-uppercase heading<?php echo $current === $c->slug ? ' is-active' : ''; ?>"
+              href="#" data-wpwc-cat="<?php echo esc_attr($c->slug); ?>"
+              data-bs-dismiss="offcanvas">
+              <span class="dot me-2" style="background:<?php echo esc_attr($color); ?>"></span>
+              <?php echo esc_html($c->name); ?>
+            </a>
+          <?php endforeach;
+          $chips_html = ob_get_clean();
+          ?>
 
-          <div class="collapse wpwc-collapse" id="<?php echo esc_attr($collapse_id); ?>">
-            <div class="wpwc-toolbar d-flex justify-content-center mb-5" role="tablist" aria-label="Filtra per attività">
-              <a class="wpwc-chip d-inline-block button button-hover rounded-pill border-button bg-bianco text-nero px-4 py-2 text-xs text-uppercase heading <?php echo $current === '' ? ' is-active' : ''; ?>"
-                href="#" data-wpwc-cat="">
-                <span class="dot me-2" style="background:#999"></span>
-                Tutte le attività
-              </a>
-              <?php foreach ($cats as $c):
-                $color = sanitize_hex_color($c->color) ?: '#777777';
-                ?>
-                <a class="wpwc-chip d-inline-block button button-hover rounded-pill border-button bg-bianco text-nero px-4 py-2 text-xs text-uppercase heading<?php echo $current === $c->slug ? ' is-active' : ''; ?>"
-                  href="#" data-wpwc-cat="<?php echo esc_attr($c->slug); ?>">
-                  <span class="dot me-2" style="background:<?php echo esc_attr($color); ?>"></span>
-                  <?php echo esc_html($c->name); ?>
-                </a>
-              <?php endforeach; ?>
+          <!-- Offcanvas: SOLO tablet/mobile (ID hardcoded) -->
+          <div class="offcanvas offcanvas-start d-lg-none bg-azzurro-chiaro border-container rounded-end-4 align-self-center" tabindex="-1" id="wpwcOffcanvas"
+            aria-labelledby="wpwcOffcanvas_label">
+            <div class="offcanvas-header position-absolute right-0 top-0 w-100">
+              <h5 class="offcanvas-title visually-hidden" id="wpwcOffcanvas_label">Filtri attività</h5>
+              <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas" aria-label="Chiudi"></button>
             </div>
+            <div class="offcanvas-body">
+              <div class="wpwc-toolbar d-flex flex-wrap justify-content-start gap-2" role="tablist"
+                aria-label="Filtra per attività">
+                <?php echo $chips_html; ?>
+              </div>
+            </div>
+          </div>
+
+          <!-- Toolbar inline: SOLO desktop -->
+          <div class="wpwc-toolbar d-none d-lg-flex justify-content-center mb-5" role="tablist"
+            aria-label="Filtra per attività">
+            <?php echo $chips_html; ?>
           </div>
         <?php endif; ?>
 
-        <div id="wpwc-grid" class="wpwc-fade d-flex justify-content-center">
-          <?php $cols = count($visible); ?>
-          <div class="wpwc-grid d-inline-block border-container rounded-4 border-button bg-bianco-puro text-nero px-0 py-0">
-            <div class="wpwc-cols row mx-0">
 
+        <div id="wpwc-grid" class="<?php echo esc_attr($grid_outer_classes); ?>">
+          <div class="wpwc-grid d-inline-block border-container rounded-4 border-button bg-bianco-puro text-nero px-0 py-0">
+            <!-- ⬇️ Container GRID -->
+            <div class="wpwc-row">
               <?php foreach ($visible as $d): ?>
-                <div class="wpwc-col col-sm-12 col-md-6 col-lg-3 px-0 text-center" data-day="<?php echo (int) $d; ?>">
+                <!-- ⬇️ Ciascuna colonna/giorno è un item Grid -->
+                <div class="wpwc-col px-0 text-center h-100" data-day="<?php echo (int) $d; ?>">
                   <div class="wpwc-day heading text-nero text-lg py-3 px-2 bg-azzurro-chiaro">
                     <?php echo esc_html($labels[$d]); ?>
                   </div>
@@ -112,7 +115,6 @@ if (!class_exists('WCW_Shortcode')):
                     <?php foreach ($by[$d] as $ev):
                       $color = sanitize_hex_color($ev->category_color ?? '') ?: '#777777';
                       $link_style = $color ? ' style="border-bottom:2px solid ' . esc_attr($color) . ';"' : '';
-                      $hide_cls = $is_attivita_ctx ? ' wpwc-hide-catlink' : '';
                       $start = $ev->time ? substr($ev->time, 0, 5) : '';
                       $end = !empty($ev->time_end) ? substr($ev->time_end, 0, 5) : '';
                       $when = $end ? ($start . ' – ' . $end) : $start;
@@ -126,10 +128,10 @@ if (!class_exists('WCW_Shortcode')):
                           <div class="subtitle text-sm text-grigio"><?php echo esc_html($ev->subtitle); ?></div>
                         <?php endif; ?>
                         <p class="meta paragraph text-sm text-nero text-capitalize">
-                          <?php echo esc_html($when); ?>
-                          <?php if (!empty($ev->category_name)): ?>
+                          <span class="bold"><?php echo esc_html($when); ?></span>
+                          <?php if (!empty($ev->category_name) && !$is_attivita_ctx): // niente link nel single 'attivita' ?>
                             <a href="<?php echo esc_url(home_url('/attivita/' . ($ev->category_slug ?? ''))); ?>"
-                              class="text-grigio<?php echo esc_attr($hide_cls); ?>" <?php echo $link_style; ?>>
+                              class="text-grigio" <?php echo $link_style; ?>>
                               • <?php echo esc_html($ev->category_name); ?>
                             </a>
                           <?php endif; ?>
@@ -139,64 +141,11 @@ if (!class_exists('WCW_Shortcode')):
                   </div>
                 </div>
               <?php endforeach; ?>
-
             </div>
+            <!-- /wpwc-row -->
           </div>
         </div>
 
-
-
-
-
-        <script>
-          (function () {
-            const wrap = document.getElementById('<?php echo esc_js($uid); ?>');
-            if (!wrap) return;
-            const grid = wrap.querySelector('#wpwc-grid');
-            const chips = wrap.querySelectorAll('.wpwc-chip');
-            const events = wrap.querySelectorAll('.wpwc-event');
-
-            // Fade veloce e fluido
-            grid.style.willChange = 'opacity';
-
-            function setActive(el) {
-              chips.forEach(c => c.classList.remove('is-active'));
-              if (el) el.classList.add('is-active');
-            }
-            function updateURL(slug) {
-              const url = new URL(window.location.href);
-              if (slug) url.searchParams.set('attivita', slug);
-              else url.searchParams.delete('attivita');
-              history.replaceState({}, '', url);
-            }
-            function applyFilter(slug) {
-              grid.classList.add('is-out'); // fade-out
-              requestAnimationFrame(() => {
-                events.forEach(ev => {
-                  const match = !slug || (ev.getAttribute('data-cat') || '') === slug;
-                  ev.classList.toggle('is-hidden', !match);
-                });
-                requestAnimationFrame(() => grid.classList.remove('is-out')); // fade-in
-              });
-            }
-
-            // Applica filtro da URL o da attributo shortcode
-            const initialSlug = '<?php echo esc_js($current); ?>';
-            if (initialSlug) {
-              const current = Array.from(chips).find(c => (c.getAttribute('data-wpwc-cat') || '') === initialSlug);
-              if (current) setActive(current);
-              applyFilter(initialSlug);
-            }
-
-            chips.forEach(ch => ch.addEventListener('click', function (e) {
-              e.preventDefault();
-              const slug = this.getAttribute('data-wpwc-cat') || '';
-              setActive(this);
-              updateURL(slug);
-              applyFilter(slug);
-            }));
-          })();
-        </script>
       </div>
       <?php
       return ob_get_clean();

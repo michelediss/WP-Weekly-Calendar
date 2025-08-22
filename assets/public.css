@@ -1,77 +1,109 @@
 /* =========================================================
-   Toolbar filtri
+   WP Weekly Calendar — GRID layout (no Bootstrap cols)
+   Requisiti:
+   - Il container si restringe quando una colonna è nascosta (d-none / is-empty)
+   - Responsive: Desktop = 1 riga; Tablet = 2 colonne per riga; Mobile = 1 colonna per riga
+   - Niente "stretch": la larghezza del container è la somma delle colonne visibili
 ========================================================= */
+
+/* ---------- Variabili ---------- */
+:root{
+  --wpwc-border:#12131D;
+
+  /* larghezze colonna suggerite per leggibilità */
+  --wpwc-colw-xs: 320px;  /* mobile */
+  --wpwc-colw-md: 240px;  /* tablet */
+  --wpwc-colw-lg: 200px;  /* desktop */
+}
+
+/* ---------- Toolbar (opzionale, base) ---------- */
 .wpwc-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
-.wpwc-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #e5e7eb;border-radius:999px;background:#fff;text-decoration:none}
+.wpwc-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #e5e7eb;border-radius:999px;background:#fff;text-decoration:none;color:inherit}
 .wpwc-chip.is-active{background:#12131D;color:#fff}
 .wpwc-chip .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
 
-/* Toggle filtri (solo <1024px) */
 .wpwc-filter-toggle{display:inline-block;margin:0 0 10px 0}
 @media (min-width:1024px){
   .wpwc-filter-toggle{display:none !important;}
   .wpwc-collapse.collapse{display:block !important;height:auto !important;visibility:visible !important;}
 }
 
-/* =========================================================
-   Griglia calendario (matrice 1/2/4, senza allargare oltre col-max)
-========================================================= */
-:root{
-  --wpwc-border:#12131D;
-  --cols:4;           /* desktop di default: 4 colonne per riga */
-  --col-max:340px;    /* larghezza massima di ogni colonna (evita lo stretch su widescreen) */
-}
+/* ---------- Wrapper scroll ---------- */
+#wpwc-grid{ overflow-x:auto; }  /* se in desktop hai molte colonne, si può scrollare */
 
-@media (max-width:1023.98px){ :root{ --cols:2; } }  /* tablet: 2 colonne */
-@media (max-width:767.98px){  :root{ --cols:1; } }  /* mobile: 1 colonna */
-
-#wpwc-grid{overflow-x:hidden} /* in matrice non serve lo scroll orizzontale */
-
-.wpwc-cols{
-  display:grid;
+/* ---------- GRID: container righe/colonne ---------- */
+/* Mobile default: 1 colonna per riga (matrice 1×N), shrink-to-fit */
+.wpwc-row{
+  display:inline-grid;                         /* shrink-to-fit: la larghezza segue le colonne visibili */
+  grid-template-columns: repeat(1, var(--wpwc-colw-xs));
   gap:0;
-  justify-content:start; /* se le colonne non riempiono al 100%, rimangono a sinistra */
-  /* 1/2/4 colonne per riga; su viewport larghi non superano --col-max */
-  grid-template-columns: repeat(var(--cols), minmax(0, min(1fr, var(--col-max))));
+  justify-content:start;                       /* niente centrature forzate */
+  align-items:start;
 }
 
-/* Singola colonna: header + contenuto */
+/* Tablet: 2 colonne per riga (matrice 2×N) */
+@media (min-width:768px) and (max-width:1023.98px){
+  .wpwc-row{
+    grid-template-columns: repeat(2, var(--wpwc-colw-md));
+  }
+}
+
+/* Desktop: 1 riga con tutte le colonne (flow a colonne) */
+@media (min-width:1024px){
+  .wpwc-row{
+    grid-template-columns:none;                /* disattiva la matrice fissa */
+    grid-auto-flow:column;                     /* una traccia per ogni .wpwc-col */
+    grid-auto-columns: var(--wpwc-colw-lg);    /* larghezza fissa per colonna */
+  }
+}
+
+/* ---------- Colonna (giorno) ---------- */
 .wpwc-col{
-  display:flex;
-  flex-direction:column;
-  min-width:0;
+  display:flex; flex-direction:column; min-width:0;
   border-right:1px solid var(--wpwc-border);
 }
-.wpwc-col:nth-child(-n+var(--cols)){} /* segnaposto: se vuoi bordi top row */
-.wpwc-col:is(:nth-child(var(--cols)n)){border-right:none} /* rimuovi bordo a fine riga */
- /* NB: se preferisci, lascia il bordo solo con :not(:nth-child(var(--cols)n)) */
-
-/* Header della colonna (giorno) */
-.wpwc-day{
-  border-top:1px solid var(--wpwc-border);
-  border-bottom:1px solid var(--wpwc-border);
-  line-height:1.2;
-  font-weight:700;
-  position:sticky; top:0; z-index:1;
-  background:#fff;
+@media (min-width:1024px){
+  .wpwc-col:last-child{ border-right:none; }
 }
 
-/* Corpo colonna */
+/* Supporto esplicito a Bootstrap d-none (oltre alla tua .is-empty) */
+.wpwc-col.d-none, .wpwc-col.is-empty{ display:none !important; }
+
+/* ---------- Header giorno ---------- */
+.wpwc-day{
+  position:sticky; top:0; z-index:1;
+  background:#fff;
+  border-top:1px solid var(--wpwc-border);
+  border-bottom:1px solid var(--wpwc-border);
+  line-height:1.2; font-weight:700;
+}
+
+/* ---------- Corpo colonna ---------- */
 .wpwc-cell{ min-height:20px; }
 
-/* =========================================================
-   Card evento
-========================================================= */
-.wpwc-event{margin:0 0 .75rem 0}
-.wpwc-event .title{margin:0;line-height:1.3}
-.wpwc-event .subtitle{margin:2px 0 4px 0;line-height:1.2;opacity:.85}
+/* ---------- Evento ---------- */
+.wpwc-event{ margin:0 0 .75rem 0 }
+.wpwc-event .title{ margin:0; line-height:1.3 }
+.wpwc-event .subtitle{ margin:2px 0 4px 0; line-height:1.2; opacity:.85 }
 
-/* =========================================================
-   Effetti / filtro client-side
-========================================================= */
-.wpwc-fade{transition:opacity 80ms cubic-bezier(.2,0,.2,1)}
-.wpwc-fade.is-out{opacity:0}
-.wpwc-event.is-hidden{display:none}
+/* ---------- Effetti / filtro client-side ---------- */
+.wpwc-fade{ transition:opacity 80ms cubic-bezier(.2,0,.2,1) }
+.wpwc-fade.is-out{ opacity:0 }
+.wpwc-event.is-hidden{ display:none }
 
-/* Nascondi colonne vuote (il tuo JS le marca) */
-.wpwc-col.is-empty{display:none !important;}
+.filter-button {
+  transition: 0.25s linear;
+}
+
+.filter-button-hidden {
+    opacity: 0;
+    width: 0;
+    margin: 0;
+    padding: 0!Important;
+    border-width: 0 !important;
+}
+
+.wpwc-wrap .offcanvas {
+  max-height: 85vh;
+  width: 95vw!important;
+}
