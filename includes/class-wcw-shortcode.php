@@ -12,7 +12,7 @@ if (!class_exists('WCW_Shortcode')):
     {
       // filters: 1|0
       $atts = shortcode_atts(['category' => '', 'filters' => '1'], $atts, 'wcw_schedule');
-      if (WCW_Closures::is_closed_now()) {
+      if (class_exists('WCW_Closures') && WCW_Closures::is_closed_now()) {
         return WCW_Closures::message_html();
       }
 
@@ -120,12 +120,12 @@ if (!class_exists('WCW_Shortcode')):
                       $when = $end ? ($start . ' – ' . $end) : $start;
                       $title_style = ' style="color:' . esc_attr($color) . ';"';
                       ?>
-                      <div class="wpwc-event mb-3" data-cat="<?php echo esc_attr($ev->category_slug ?: ''); ?>">
+                      <div class="wpwc-event mb-4" data-cat="<?php echo esc_attr($ev->category_slug ?: ''); ?>">
                         <h3 class="title text-base heading" <?php echo $title_style; ?>>
                           <?php echo esc_html($ev->name); ?>
                         </h3>
                         <?php if (!empty($ev->subtitle)): ?>
-                          <div class="subtitle text-sm text-grigio"><?php echo esc_html($ev->subtitle); ?></div>
+                          <div class="paragraph text-sm text-grigio my-1"><?php echo esc_html($ev->subtitle); ?></div>
                         <?php endif; ?>
                         <p class="meta paragraph text-sm text-nero text-capitalize">
                           <span class="bold"><?php echo esc_html($when); ?></span>

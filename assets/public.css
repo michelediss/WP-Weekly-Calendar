@@ -107,3 +107,5 @@
   max-height: 85vh;
   width: 95vw!important;
 }
+/* helper per range orario */
+.time-range{opacity:.75}

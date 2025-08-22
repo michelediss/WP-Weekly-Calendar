@@ -10,8 +10,10 @@ class WCW_DB {
     $sql = "CREATE TABLE $t (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       name VARCHAR(120) NOT NULL,
+      subtitle VARCHAR(200) NULL,
       weekday TINYINT UNSIGNED NOT NULL,
       time TIME NOT NULL,
+      time_end TIME NULL,
       category_id BIGINT UNSIGNED NULL, -- ID del post CPT 'attivita'
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -19,6 +21,21 @@ class WCW_DB {
       KEY idx_cat (category_id)
     ) $charset;";
     dbDelta($sql);
+  }
+
+  // Upgrade morbido: aggiunge colonne mancanti su installazioni esistenti
+  public static function maybe_upgrade(){
+    global $wpdb;
+    $t = self::table_events();
+    $cols = $wpdb->get_results("SHOW COLUMNS FROM $t", ARRAY_A);
+    if (!$cols) return;
+    $have = array_column($cols, 'Field');
+    if (!in_array('subtitle',$have,true)) {
+      $wpdb->query("ALTER TABLE $t ADD COLUMN subtitle VARCHAR(200) NULL AFTER name");
+    }
+    if (!in_array('time_end',$have,true)) {
+      $wpdb->query("ALTER TABLE $t ADD COLUMN time_end TIME NULL AFTER time");
+    }
   }
 
   // Categorie dal CPT 'attivita' + ACF 'colore' (per admin select)
@@ -45,19 +62,17 @@ class WCW_DB {
     LEFT JOIN $e  ev ON (ev.category_id=p.ID)
         WHERE p.post_type=%s AND p.post_status='publish'
      GROUP BY p.ID, p.post_title, p.post_name, m.meta_value
-       HAVING total_events > 0
+     HAVING COUNT(ev.id) > 0
      ORDER BY p.post_title ASC",
       'colore','attivita'
     );
     return $wpdb->get_results($sql);
   }
 
-  // Alias per eventuali vecchi riferimenti
-  public static function get_categories(){ return self::get_filter_categories(); }
-
   // Eventi con join su CPT 'attivita' + colore ACF
   public static function get_events($category_slug = ''){
-    global $wpdb; $t=self::table_events(); $p=$wpdb->posts; $pm=$wpdb->postmeta;
+    global $wpdb; self::maybe_upgrade();
+    $t=self::table_events(); $p=$wpdb->posts; $pm=$wpdb->postmeta;
     if ($category_slug) {
       $sql = $wpdb->prepare(
         "SELECT e.*, p.post_title category_name, p.post_name category_slug, m.meta_value category_color
@@ -80,21 +95,25 @@ class WCW_DB {
   }
 
   // CRUD
-  public static function insert_event($name,$weekday,$time,$category_id){
-    global $wpdb;
+  public static function insert_event($name,$weekday,$time,$category_id,$subtitle=null,$time_end=null){
+    global $wpdb; self::maybe_upgrade();
     return (bool)$wpdb->insert(self::table_events(), [
       'name'        => sanitize_text_field($name),
+      'subtitle'    => $subtitle!==null ? sanitize_text_field($subtitle) : null,
       'weekday'     => max(1,min(7,(int)$weekday)),
-      'time'        => preg_replace('/[^0-9:]/','',$time),
+      'time'        => preg_replace('/[^0-9:]/','', (string)$time),
+      'time_end'    => $time_end!==null ? preg_replace('/[^0-9:]/','', (string)$time_end) : null,
       'category_id' => $category_id ? (int)$category_id : null,
     ]);
   }
-  public static function update_event($id,$name,$weekday,$time,$category_id){
-    global $wpdb; $id=(int)$id; if(!$id) return false;
+  public static function update_event($id,$name,$weekday,$time,$category_id,$subtitle=null,$time_end=null){
+    global $wpdb; self::maybe_upgrade(); $id=(int)$id; if(!$id) return false;
     return (bool)$wpdb->update(self::table_events(), [
       'name'        => sanitize_text_field($name),
+      'subtitle'    => $subtitle!==null ? sanitize_text_field($subtitle) : null,
       'weekday'     => max(1,min(7,(int)$weekday)),
-      'time'        => preg_replace('/[^0-9:]/','',$time),
+      'time'        => preg_replace('/[^0-9:]/','', (string)$time),
+      'time_end'    => $time_end!==null ? preg_replace('/[^0-9:]/','', (string)$time_end) : null,
       'category_id' => $category_id ? (int)$category_id : null,
     ], ['id'=>$id]);
   }
