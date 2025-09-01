@@ -1,124 +1,173 @@
 <?php
-if (!class_exists('WCW_DB')):
+if ( ! class_exists( 'WCW_DB' ) ):
 class WCW_DB {
-  public static function table_events(){ global $wpdb; return $wpdb->prefix.'wcw_events'; }
 
-  public static function create_tables(){
-    global $wpdb; $charset = $wpdb->get_charset_collate();
-    $t = self::table_events();
-    require_once ABSPATH.'wp-admin/includes/upgrade.php';
-    $sql = "CREATE TABLE $t (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      name VARCHAR(120) NOT NULL,
-      subtitle VARCHAR(200) NULL,
-      weekday TINYINT UNSIGNED NOT NULL,
-      time TIME NOT NULL,
-      time_end TIME NULL,
-      category_id BIGINT UNSIGNED NULL, -- ID del post CPT 'attivita'
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      KEY idx_day_time (weekday, time),
-      KEY idx_cat (category_id)
-    ) $charset;";
-    dbDelta($sql);
-  }
-
-  // Upgrade morbido: aggiunge colonne mancanti su installazioni esistenti
-  public static function maybe_upgrade(){
+  /* ===========================
+   *  Low-level helpers
+   * =========================== */
+  private static function table(){
     global $wpdb;
-    $t = self::table_events();
-    $cols = $wpdb->get_results("SHOW COLUMNS FROM $t", ARRAY_A);
-    if (!$cols) return;
-    $have = array_column($cols, 'Field');
-    if (!in_array('subtitle',$have,true)) {
-      $wpdb->query("ALTER TABLE $t ADD COLUMN subtitle VARCHAR(200) NULL AFTER name");
-    }
-    if (!in_array('time_end',$have,true)) {
-      $wpdb->query("ALTER TABLE $t ADD COLUMN time_end TIME NULL AFTER time");
-    }
+    return $wpdb->prefix . 'wcw_events';
   }
 
-  // Categorie dal CPT 'attivita' + ACF 'colore' (per admin select)
-  public static function get_categories_all(){
-    global $wpdb; $p=$wpdb->posts; $pm=$wpdb->postmeta;
-    $sql = $wpdb->prepare(
-      "SELECT p.ID id, p.post_title name, p.post_name slug, m.meta_value color
-         FROM $p p
-    LEFT JOIN $pm m ON (m.post_id=p.ID AND m.meta_key=%s)
-        WHERE p.post_type=%s AND p.post_status='publish'
-     ORDER BY p.post_title ASC",
-      'colore','attivita'
-    );
-    return $wpdb->get_results($sql);
+  private static function clean_time($t){
+    $t = is_string($t) ? trim($t) : '';
+    if ($t === '' || $t === '00:00' || $t === '00:00:00' || $t === '0:00') return '';
+    return substr($t, 0, 5);
   }
 
-  // Solo attività con almeno un evento (per chip frontend)
-  public static function get_filter_categories(){
-    global $wpdb; $p=$wpdb->posts; $pm=$wpdb->postmeta; $e=self::table_events();
-    $sql = $wpdb->prepare(
-      "SELECT p.ID id, p.post_title name, p.post_name slug, m.meta_value color, COUNT(ev.id) total_events
-         FROM $p p
-    LEFT JOIN $pm m  ON (m.post_id=p.ID AND m.meta_key=%s)
-    LEFT JOIN $e  ev ON (ev.category_id=p.ID)
-        WHERE p.post_type=%s AND p.post_status='publish'
-     GROUP BY p.ID, p.post_title, p.post_name, m.meta_value
-     HAVING COUNT(ev.id) > 0
-     ORDER BY p.post_title ASC",
-      'colore','attivita'
-    );
-    return $wpdb->get_results($sql);
-  }
-
-  // Eventi con join su CPT 'attivita' + colore ACF
-  public static function get_events($category_slug = ''){
-    global $wpdb; self::maybe_upgrade();
-    $t=self::table_events(); $p=$wpdb->posts; $pm=$wpdb->postmeta;
-    if ($category_slug) {
-      $sql = $wpdb->prepare(
-        "SELECT e.*, p.post_title category_name, p.post_name category_slug, m.meta_value category_color
-           FROM $t e
-      LEFT JOIN $p  p  ON (p.ID=e.category_id AND p.post_type=%s AND p.post_status='publish')
-      LEFT JOIN $pm m  ON (m.post_id=p.ID AND m.meta_key=%s)
-          WHERE p.post_name=%s
-       ORDER BY e.weekday ASC, e.time ASC, e.name ASC",
-        'attivita','colore',sanitize_title($category_slug)
-      );
+  /**
+   * Ritorna il colore per un post 'attivita' leggendo il campo ACF 'colore'.
+   * Fallback su get_post_meta('colore') se ACF non è disponibile.
+   * Default: #777777
+   */
+  private static function get_activity_color($post_id){
+    $color = '';
+    if (function_exists('get_field')) {
+      $color = get_field('colore', $post_id);
     } else {
-      $sql =
-        "SELECT e.*, p.post_title category_name, p.post_name category_slug, m.meta_value category_color
-           FROM $t e
-      LEFT JOIN $p  p  ON (p.ID=e.category_id AND p.post_type='attivita' AND p.post_status='publish')
-      LEFT JOIN $pm m  ON (m.post_id=p.ID AND m.meta_key='colore')
-       ORDER BY e.weekday ASC, e.time ASC, e.name ASC";
+      $color = get_post_meta($post_id, 'colore', true);
     }
-    return $wpdb->get_results($sql);
+    $color = is_string($color) ? trim($color) : '';
+    $color = sanitize_hex_color($color);
+    return $color ?: '#777777';
   }
 
-  // CRUD
-  public static function insert_event($name,$weekday,$time,$category_id,$subtitle=null,$time_end=null){
-    global $wpdb; self::maybe_upgrade();
-    return (bool)$wpdb->insert(self::table_events(), [
-      'name'        => sanitize_text_field($name),
-      'subtitle'    => $subtitle!==null ? sanitize_text_field($subtitle) : null,
-      'weekday'     => max(1,min(7,(int)$weekday)),
-      'time'        => preg_replace('/[^0-9:]/','', (string)$time),
-      'time_end'    => $time_end!==null ? preg_replace('/[^0-9:]/','', (string)$time_end) : null,
-      'category_id' => $category_id ? (int)$category_id : null,
-    ]);
+  private static function enrich_event(&$r){
+    // category_id è l'ID del CPT 'attivita'
+    $cat_id = isset($r->category_id) ? (int)$r->category_id : 0;
+
+    if ($cat_id > 0){
+      $slug  = get_post_field('post_name', $cat_id) ?: '';
+      $name  = get_the_title($cat_id) ?: '';
+      $color = self::get_activity_color($cat_id);
+
+      $r->category_slug  = $slug;
+      $r->category_name  = $name;
+      $r->category_color = $color;
+    } else {
+      $r->category_slug  = '';
+      $r->category_name  = '';
+      $r->category_color = '#777777';
+    }
+
+    // normalizza orari per uso frontend/admin
+    $r->time     = self::clean_time($r->time);
+    $r->time_end = self::clean_time($r->time_end);
   }
-  public static function update_event($id,$name,$weekday,$time,$category_id,$subtitle=null,$time_end=null){
-    global $wpdb; self::maybe_upgrade(); $id=(int)$id; if(!$id) return false;
-    return (bool)$wpdb->update(self::table_events(), [
-      'name'        => sanitize_text_field($name),
-      'subtitle'    => $subtitle!==null ? sanitize_text_field($subtitle) : null,
-      'weekday'     => max(1,min(7,(int)$weekday)),
-      'time'        => preg_replace('/[^0-9:]/','', (string)$time),
-      'time_end'    => $time_end!==null ? preg_replace('/[^0-9:]/','', (string)$time_end) : null,
-      'category_id' => $category_id ? (int)$category_id : null,
-    ], ['id'=>$id]);
+
+  /* ===========================
+   *  Public API
+   * =========================== */
+
+  /** Ritorna un singolo evento (arricchito con dati categoria). */
+  public static function get_event($id){
+    global $wpdb;
+    $sql = $wpdb->prepare("SELECT * FROM " . self::table() . " WHERE id = %d", (int)$id);
+    $row = $wpdb->get_row($sql);
+    if ($row) self::enrich_event($row);
+    return $row;
   }
+
+  /**
+   * Ritorna eventi; se $category_slug è fornito, filtra post-enrichment.
+   * $category_slug è lo slug del CPT 'attivita'.
+   */
+  public static function get_events($category_slug = ''){
+    global $wpdb;
+    $rows = $wpdb->get_results("SELECT * FROM " . self::table() . " ORDER BY weekday ASC, time ASC, id ASC");
+
+    foreach ($rows as &$r) self::enrich_event($r);
+    unset($r);
+
+    if (is_string($category_slug) && $category_slug !== ''){
+      $category_slug = sanitize_title($category_slug);
+      $rows = array_values(array_filter($rows, function($r) use ($category_slug){
+        return isset($r->category_slug) && $r->category_slug === $category_slug;
+      }));
+    }
+    return $rows;
+  }
+
+  /** Inserisce un evento. Ritorna insert_id o false su errore. */
+  public static function insert_event($name, $day, $time, $cat, $sub, $time_e){
+    global $wpdb;
+    $table = self::table();
+
+    $data = [
+      'name'        => (string)$name,
+      'weekday'     => (int)$day,
+      'time'        => (string)$time,
+      'subtitle'    => (string)$sub,
+      'time_end'    => ($time_e === '' ? null : (string)$time_e),
+      'category_id' => (is_int($cat) && $cat > 0) ? (int)$cat : null,
+    ];
+    $format = ['%s','%d','%s','%s','%s','%d'];
+
+    $res = $wpdb->insert($table, $data, $format);
+    return ($res === false) ? false : (int)$wpdb->insert_id;
+  }
+
+  /**
+   * Aggiorna un evento.
+   * Ritorna false su errore, altrimenti il numero di righe (0 = nessun cambiamento).
+   */
+  public static function update_event($id, $name, $day, $time, $cat, $sub, $time_e){
+    global $wpdb;
+    $table = self::table();
+
+    $data = [
+      'name'     => (string)$name,
+      'weekday'  => (int)$day,
+      'time'     => (string)$time,
+      'subtitle' => (string)$sub,
+      'time_end' => ($time_e === '' ? null : (string)$time_e),
+    ];
+    $format = ['%s','%d','%s','%s','%s'];
+
+    // Se $cat è un int >0, aggiorna; se null, non toccare; (mai passare 0)
+    if (is_int($cat) && $cat > 0){
+      $data['category_id'] = (int)$cat;
+      $format[] = '%d';
+    }
+
+    $res = $wpdb->update($table, $data, ['id'=>(int)$id], $format, ['%d']);
+    return ($res === false) ? false : (int)$res;
+  }
+
+  /** Elimina un evento. Ritorna numero righe eliminate o false. */
   public static function delete_event($id){
-    global $wpdb; return (bool)$wpdb->delete(self::table_events(), ['id'=>(int)$id]);
+    global $wpdb;
+    $table = self::table();
+    $res = $wpdb->delete($table, ['id'=>(int)$id], ['%d']);
+    return ($res === false) ? false : (int)$res;
+  }
+
+  /**
+   * Ritorna l’elenco “categorie” per i filtri UI.
+   * Piano A: usa direttamente i post pubblicati del CPT 'attivita'.
+   * Oggetto: (id, slug, name, color) — color da ACF 'colore'
+   */
+  public static function get_filter_categories(){
+    $posts = get_posts([
+      'post_type'        => 'attivita',
+      'post_status'      => 'publish',
+      'posts_per_page'   => -1,
+      'orderby'          => 'title',
+      'order'            => 'ASC',
+      'suppress_filters' => false,
+    ]);
+
+    $out = [];
+    foreach ($posts as $p){
+      $out[] = (object)[
+        'id'    => (int)$p->ID,
+        'slug'  => (string)$p->post_name,
+        'name'  => (string)$p->post_title,
+        'color' => (string) self::get_activity_color($p->ID),
+      ];
+    }
+    return $out;
   }
 }
 endif;

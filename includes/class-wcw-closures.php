@@ -45,7 +45,7 @@ class WCW_Closures {
     }
 
     $msg = $date_it ? str_replace('{date}', $date_it, $tpl) : ( $tpl === 'Le attività riprenderanno il giorno {date}' ? 'Siamo chiusi.' : str_replace('{date}', '', $tpl) );
-    return '<p class="wcw-closure-message paragraph bold text-base text-center">'.esc_html($msg).'</p>';
+    return '<p class="wcw-closure-message paragraph bold text-lg">'.esc_html($msg).'</p>';
   }
 }
 endif;
